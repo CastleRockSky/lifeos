@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LifeOS</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        :root {
+            --bg: #121318;
+            --surface: #1a1b23;
+            --surface-hover: #252631;
+            --border: #2e303d;
+            --text: #e2e8f0;
+            --text-muted: #8b8fa3;
+            --text-faint: #5a5e72;
+            --primary: #4db8a4;
+            --primary-hover: #3da594;
+            --primary-muted: rgba(77, 184, 164, 0.12);
+            --accent: #e8a855;
+            --danger: #ef4444;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --radius: 0.5rem;
+            --transition: 0.15s ease;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .app {
+            display: grid;
+            grid-template-rows: 56px 1fr;
+            grid-template-columns: 220px 1fr;
+            grid-template-areas: "header header" "sidebar main";
+            min-height: 100vh;
+        }
+
+        /* ── Header ─────────────────────────────────────── */
+        .header {
+            grid-area: header;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 1.25rem;
+            gap: 1rem;
+            z-index: 100;
+            position: sticky;
+            top: 0;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            font-size: 1rem;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .brand svg { width: 24px; height: 24px; color: var(--primary); }
+        .brand span { color: var(--text); }
+
+        .search-bar { flex: 1; max-width: 500px; position: relative; }
+        .search-bar input {
+            width: 100%; padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: var(--radius); color: var(--text);
+            font-size: 0.85rem;
+            transition: border-color var(--transition);
+        }
+        .search-bar input:focus {
+            outline: none; border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-muted);
+        }
+        .search-bar input::placeholder { color: var(--text-faint); }
+        .search-bar .icon {
+            position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%);
+            width: 16px; height: 16px; color: var(--text-faint); pointer-events: none;
+        }
+
+        .header-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+
+        .btn {
+            padding: 0.45rem 0.9rem; border-radius: var(--radius);
+            font-size: 0.8rem; font-weight: 500; cursor: pointer;
+            border: 1px solid var(--border); background: var(--surface);
+            color: var(--text); transition: all var(--transition);
+            display: inline-flex; align-items: center; gap: 0.4rem;
+        }
+        .btn:hover { background: var(--surface-hover); }
+        .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-danger { color: var(--danger); }
+        .btn-danger:hover { background: rgba(239,68,68,0.1); }
+        .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+
+        /* ── Sidebar ────────────────────────────────────── */
+        .sidebar {
+            grid-area: sidebar;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 1rem 0;
+            overflow-y: auto;
+        }
+
+        .sidebar-section { padding: 0 0.75rem; margin-bottom: 1.5rem; }
+        .sidebar-label {
+            font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--text-faint);
+            padding: 0 0.5rem; margin-bottom: 0.5rem;
+        }
+
+        .nav-item {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.4rem 0.75rem; border-radius: var(--radius);
+            font-size: 0.8rem; color: var(--text-muted); cursor: pointer;
+            transition: all var(--transition); border: none; background: none;
+            width: 100%; text-align: left;
+        }
+        .nav-item:hover { background: var(--surface-hover); color: var(--text); }
+        .nav-item.active { background: var(--primary-muted); color: var(--primary); }
+        .nav-item .count {
+            margin-left: auto; font-size: 0.7rem;
+            background: var(--bg); padding: 0.1rem 0.4rem;
+            border-radius: 10px; color: var(--text-faint);
+        }
+
+        .domain-dot {
+            width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+        }
+
+        /* ── Main Content ───────────────────────────────── */
+        .main {
+            grid-area: main;
+            padding: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .page-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 1.25rem;
+        }
+        .page-header h2 { font-size: 1.1rem; font-weight: 600; }
+
+        /* ── Cards ──────────────────────────────────────── */
+        .card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1rem;
+            transition: border-color var(--transition); cursor: pointer;
+        }
+        .card:hover { border-color: var(--primary); }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .doc-card-title {
+            font-size: 0.85rem; font-weight: 500;
+            margin-bottom: 0.4rem;
+            display: -webkit-box; -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical; overflow: hidden;
+        }
+
+        .doc-card-meta {
+            display: flex; align-items: center; gap: 0.5rem;
+            font-size: 0.7rem; color: var(--text-muted);
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            padding: 0.15rem 0.5rem; border-radius: 10px;
+            font-size: 0.65rem; font-weight: 500;
+            background: var(--primary-muted); color: var(--primary);
+        }
+        .badge-medical { background: rgba(239,68,68,0.12); color: #ef4444; }
+        .badge-financial { background: rgba(99,102,241,0.12); color: #6366f1; }
+        .badge-auto { background: rgba(245,158,11,0.12); color: #f59e0b; }
+        .badge-home { background: rgba(16,185,129,0.12); color: #10b981; }
+        .badge-vet { background: rgba(236,72,153,0.12); color: #ec4899; }
+        .badge-legal { background: rgba(139,92,246,0.12); color: #8b5cf6; }
+        .badge-insurance { background: rgba(59,130,246,0.12); color: #3b82f6; }
+
+        /* ── Modal ──────────────────────────────────────── */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 200; padding: 1rem;
+        }
+        .modal {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); max-width: 560px; width: 100%;
+            max-height: 90vh; overflow-y: auto; padding: 1.5rem;
+        }
+        .modal h3 { font-size: 1rem; margin-bottom: 1rem; }
+
+        .form-group { margin-bottom: 1rem; }
+        .form-group label {
+            display: block; font-size: 0.75rem; font-weight: 500;
+            color: var(--text-muted); margin-bottom: 0.3rem;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 0.5rem 0.75rem;
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: var(--radius); color: var(--text);
+            font-size: 0.85rem; font-family: inherit;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none; border-color: var(--primary);
+        }
+        .form-group select { cursor: pointer; }
+
+        /* ── Drop Zone ─────────────────────────────────── */
+        .drop-zone {
+            border: 2px dashed var(--border); border-radius: var(--radius);
+            padding: 2rem; text-align: center; cursor: pointer;
+            transition: all var(--transition); margin-bottom: 1rem;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--primary); background: var(--primary-muted);
+        }
+        .drop-zone p { color: var(--text-muted); font-size: 0.85rem; }
+        .drop-zone .selected-file {
+            color: var(--primary); font-weight: 500; font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+
+        /* ── Detail View ───────────────────────────────── */
+        .detail-grid {
+            display: grid; grid-template-columns: 1fr 300px; gap: 1.5rem;
+        }
+        .detail-meta-row {
+            display: flex; gap: 0.5rem; margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+        }
+        .detail-meta-row .label { color: var(--text-muted); min-width: 100px; }
+        .detail-content {
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1rem;
+            max-height: 500px; overflow-y: auto;
+            font-size: 0.8rem; white-space: pre-wrap;
+            line-height: 1.7; color: var(--text-muted);
+        }
+
+        /* ── Search Results ─────────────────────────────── */
+        .search-result {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem;
+            cursor: pointer; transition: border-color var(--transition);
+        }
+        .search-result:hover { border-color: var(--primary); }
+        .search-result-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 0.3rem; }
+        .search-result-snippet {
+            font-size: 0.78rem; color: var(--text-muted);
+            display: -webkit-box; -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .search-result-meta { font-size: 0.7rem; color: var(--text-faint); margin-top: 0.4rem; }
+
+        /* ── Stats ──────────────────────────────────────── */
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 0.75rem; margin-bottom: 1.5rem;
+        }
+        .stat-card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1rem;
+        }
+        .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+        .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+        /* ── Loading / Empty ────────────────────────────── */
+        .loading { text-align: center; padding: 3rem; color: var(--text-muted); }
+        .empty-state { text-align: center; padding: 3rem; color: var(--text-faint); }
+        .empty-state p { margin-bottom: 1rem; }
+
+        /* ── Toast ──────────────────────────────────────── */
+        .toast {
+            position: fixed; bottom: 1.5rem; right: 1.5rem;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 0.75rem 1.25rem;
+            font-size: 0.8rem; z-index: 300;
+            animation: slideIn 0.2s ease;
+        }
+        .toast.success { border-color: var(--success); color: var(--success); }
+        .toast.error { border-color: var(--danger); color: var(--danger); }
+
+        @keyframes slideIn {
+            from { transform: translateY(1rem); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* ── Responsive ─────────────────────────────────── */
+        @media (max-width: 768px) {
+            .app {
+                grid-template-columns: 1fr;
+                grid-template-areas: "header" "main";
+            }
+            .sidebar { display: none; }
+            .detail-grid { grid-template-columns: 1fr; }
+            .card-grid { grid-template-columns: 1fr; }
+            .header { padding: 0 0.75rem; }
+            .brand span { display: none; }
+        }
+
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .app { grid-template-columns: 180px 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app" x-data="lifeos()" x-init="init()">
+
+    <!-- Header -->
+    <header class="header">
+        <div class="brand" @click="navigate('home')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span>LifeOS</span>
+        </div>
+
+        <div class="search-bar">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" placeholder="Search documents..."
+                   x-model="searchQuery"
+                   @keydown.enter="doSearch()"
+                   @keydown.slash.window.prevent="$refs?.searchInput?.focus()">
+        </div>
+
+        <div class="header-actions">
+            <button class="btn btn-primary" @click="showUpload = true">Upload</button>
+        </div>
+    </header>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-label">Navigation</div>
+            <button class="nav-item" :class="{ active: view === 'home' }" @click="navigate('home')">Dashboard</button>
+            <button class="nav-item" :class="{ active: view === 'documents' && !filterDomain }" @click="filterDomain = null; navigate('documents')">All Documents</button>
+            <button class="nav-item" :class="{ active: view === 'subjects' }" @click="navigate('subjects')">Subjects</button>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-label">Domains</div>
+            <template x-for="d in domains" :key="d">
+                <button class="nav-item" :class="{ active: view === 'documents' && filterDomain === d }"
+                        @click="filterDomain = d; navigate('documents')">
+                    <span class="domain-dot" :style="'background:' + domainColor(d)"></span>
+                    <span x-text="d" style="text-transform: capitalize;"></span>
+                    <span class="count" x-text="stats?.by_domain?.[d] || 0"></span>
+                </button>
+            </template>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+
+        <!-- Home / Dashboard -->
+        <template x-if="view === 'home'">
+            <div>
+                <div class="page-header"><h2>Dashboard</h2></div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" x-text="stats?.documents || 0"></div>
+                        <div class="stat-label">Documents</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" x-text="formatBytes(stats?.storage_bytes || 0)"></div>
+                        <div class="stat-label">Storage</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" x-text="stats?.chunks || 0"></div>
+                        <div class="stat-label">Search Chunks</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" x-text="stats?.subjects || 0"></div>
+                        <div class="stat-label">Subjects</div>
+                    </div>
+                </div>
+
+                <div class="page-header"><h2>Recent Documents</h2></div>
+                <div class="card-grid">
+                    <template x-for="doc in documents.slice(0, 6)" :key="doc.id">
+                        <div class="card" @click="viewDocument(doc.id)">
+                            <div class="doc-card-title" x-text="doc.title"></div>
+                            <div class="doc-card-meta">
+                                <span class="badge" :class="'badge-' + doc.domain" x-text="doc.domain" x-show="doc.domain"></span>
+                                <span x-text="doc.category?.replace(/_/g, ' ')" x-show="doc.category"></span>
+                                <span x-text="formatDate(doc.ingested_at)"></span>
+                                <span x-text="formatBytes(doc.file_size_bytes)"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                <div class="empty-state" x-show="documents.length === 0 && !loading">
+                    <p>No documents yet. Upload your first document to get started.</p>
+                    <button class="btn btn-primary" @click="showUpload = true">Upload Document</button>
+                </div>
+            </div>
+        </template>
+
+        <!-- Documents List -->
+        <template x-if="view === 'documents'">
+            <div>
+                <div class="page-header">
+                    <h2>
+                        <span x-show="!filterDomain">All Documents</span>
+                        <span x-show="filterDomain" x-text="(filterDomain || '').charAt(0).toUpperCase() + (filterDomain || '').slice(1) + ' Documents'"></span>
+                    </h2>
+                    <button class="btn btn-primary" @click="showUpload = true">Upload</button>
+                </div>
+
+                <div class="card-grid">
+                    <template x-for="doc in documents" :key="doc.id">
+                        <div class="card" @click="viewDocument(doc.id)">
+                            <div class="doc-card-title" x-text="doc.title"></div>
+                            <div class="doc-card-meta">
+                                <span class="badge" :class="'badge-' + doc.domain" x-text="doc.domain" x-show="doc.domain"></span>
+                                <span x-text="doc.category?.replace(/_/g, ' ')" x-show="doc.category"></span>
+                                <span x-text="formatDate(doc.ingested_at)"></span>
+                                <span x-text="formatBytes(doc.file_size_bytes)"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="empty-state" x-show="documents.length === 0 && !loading">
+                    <p>No documents found.</p>
+                </div>
+
+                <!-- Pagination -->
+                <div style="display:flex; justify-content:center; gap:0.5rem; margin-top:1.5rem;"
+                     x-show="totalDocs > perPage">
+                    <button class="btn btn-sm" @click="page > 1 && (page--, loadDocuments())"
+                            :disabled="page <= 1">Prev</button>
+                    <span style="font-size:0.8rem; color:var(--text-muted); line-height:2;"
+                          x-text="'Page ' + page + ' of ' + Math.ceil(totalDocs / perPage)"></span>
+                    <button class="btn btn-sm" @click="page < Math.ceil(totalDocs/perPage) && (page++, loadDocuments())"
+                            :disabled="page >= Math.ceil(totalDocs/perPage)">Next</button>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
+        <!-- Document Detail -->
+        <template x-if="view === 'detail'">
+            <div>
+                <div class="page-header">
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <button class="btn btn-sm" @click="navigate(prevView || 'documents')">Back</button>
+                        <h2 x-text="currentDoc?.title"></h2>
+                    </div>
+                    <div style="display:flex; gap:0.5rem;">
+                        <button class="btn btn-sm" @click="showEditDoc = true">Edit</button>
+                        <a class="btn btn-sm" :href="'/api/documents/' + currentDoc?.id + '/file'" target="_blank">Download</a>
+                        <button class="btn btn-sm btn-danger" @click="deleteDocument(currentDoc?.id)">Delete</button>
+                    </div>
+                </div>
+
+                <div class="detail-grid" x-show="currentDoc">
+                    <div>
+                        <!-- File preview -->
+                        <div x-show="currentDoc?.mime_type === 'application/pdf'" style="margin-bottom:1rem;">
+                            <iframe :src="'/api/documents/' + currentDoc?.id + '/file'"
+                                    style="width:100%; height:500px; border:1px solid var(--border); border-radius:var(--radius);"></iframe>
+                        </div>
+                        <div x-show="currentDoc?.mime_type?.startsWith('image/')" style="margin-bottom:1rem;">
+                            <img :src="'/api/documents/' + currentDoc?.id + '/file'"
+                                 style="max-width:100%; border-radius:var(--radius);">
+                        </div>
+
+                        <h3 style="font-size:0.85rem; margin-bottom:0.5rem; color:var(--text-muted);">Extracted Text</h3>
+                        <div class="detail-content" x-text="currentDoc?.content_text || '(no text extracted)'"></div>
+                    </div>
+
+                    <div>
+                        <div class="card" style="cursor:default;">
+                            <h3 style="font-size:0.85rem; margin-bottom:0.75rem;">Metadata</h3>
+                            <div class="detail-meta-row">
+                                <span class="label">Domain</span>
+                                <span class="badge" :class="'badge-' + currentDoc?.domain"
+                                      x-text="currentDoc?.domain || 'none'" x-show="currentDoc?.domain"></span>
+                                <span x-show="!currentDoc?.domain" style="color:var(--text-faint)">—</span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Category</span>
+                                <span x-text="currentDoc?.category?.replace(/_/g, ' ') || '—'"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Subject</span>
+                                <span x-text="currentDoc?.subject_name || '—'"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">File</span>
+                                <span x-text="currentDoc?.original_filename || '—'" style="word-break:break-all;"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Size</span>
+                                <span x-text="formatBytes(currentDoc?.file_size_bytes)"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Type</span>
+                                <span x-text="currentDoc?.mime_type || '—'"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Pages</span>
+                                <span x-text="currentDoc?.page_count || '—'"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">OCR</span>
+                                <span x-text="currentDoc?.ocr_applied ? 'Yes' : 'No'"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Text Length</span>
+                                <span x-text="(currentDoc?.text_length || 0).toLocaleString() + ' chars'"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Chunks</span>
+                                <span x-text="currentDoc?.chunks?.length || 0"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Embeddings</span>
+                                <span x-text="currentDoc?.embedding_status || '—'"></span>
+                            </div>
+                            <div class="detail-meta-row">
+                                <span class="label">Ingested</span>
+                                <span x-text="formatDate(currentDoc?.ingested_at)"></span>
+                            </div>
+                            <div class="detail-meta-row" x-show="currentDoc?.tags?.length">
+                                <span class="label">Tags</span>
+                                <span x-text="currentDoc?.tags?.join(', ')"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- Search Results -->
+        <template x-if="view === 'search'">
+            <div>
+                <div class="page-header">
+                    <h2>Search: "<span x-text="lastSearchQuery"></span>"</h2>
+                </div>
+
+                <template x-for="r in searchResults" :key="r.document_id + '-' + r.chunk_index">
+                    <div class="search-result" @click="viewDocument(r.document_id)">
+                        <div class="search-result-title" x-text="r.title || r.original_filename || 'Untitled'"></div>
+                        <div class="search-result-snippet" x-text="r.chunk_text"></div>
+                        <div class="search-result-meta">
+                            <span class="badge" :class="'badge-' + r.document_domain" x-text="r.document_domain" x-show="r.document_domain"></span>
+                            Score: <span x-text="r.score?.toFixed(4)"></span>
+                            &middot; <span x-text="r.match_type"></span>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="empty-state" x-show="searchResults.length === 0 && !loading">
+                    <p>No results found.</p>
+                </div>
+                <div class="loading" x-show="loading">Searching...</div>
+            </div>
+        </template>
+
+        <!-- Subjects -->
+        <template x-if="view === 'subjects'">
+            <div>
+                <div class="page-header">
+                    <h2>Subjects</h2>
+                    <button class="btn btn-primary" @click="showNewSubject = true">New Subject</button>
+                </div>
+
+                <div class="card-grid">
+                    <template x-for="s in subjects" :key="s.id">
+                        <div class="card" @click="viewSubject(s.id)">
+                            <div class="doc-card-title" x-text="s.name"></div>
+                            <div class="doc-card-meta">
+                                <span class="badge" x-text="s.type"></span>
+                                <span x-text="s.document_count + ' docs'"></span>
+                                <span x-show="s.is_primary" style="color:var(--accent);">Primary</span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+    </main>
+
+    <!-- Upload Modal -->
+    <div class="modal-overlay" x-show="showUpload" @click.self="showUpload = false"
+         x-transition style="display:none;">
+        <div class="modal">
+            <h3>Upload Document</h3>
+
+            <div class="drop-zone" :class="{ dragover: isDragover }"
+                 @click="$refs.fileInput.click()"
+                 @dragover.prevent="isDragover = true"
+                 @dragleave="isDragover = false"
+                 @drop.prevent="isDragover = false; handleDrop($event)">
+                <p>Drop a file here or click to browse</p>
+                <div class="selected-file" x-show="uploadFile" x-text="uploadFile?.name"></div>
+            </div>
+            <input type="file" x-ref="fileInput" style="display:none"
+                   @change="uploadFile = $event.target.files[0]">
+
+            <div class="form-group">
+                <label>Title (optional)</label>
+                <input type="text" x-model="uploadTitle" placeholder="Auto-detected from filename">
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                <div class="form-group">
+                    <label>Domain</label>
+                    <select x-model="uploadDomain" @change="uploadCategory = ''">
+                        <option value="">None</option>
+                        <template x-for="d in domains" :key="d">
+                            <option :value="d" x-text="d.charAt(0).toUpperCase() + d.slice(1)"></option>
+                        </template>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select x-model="uploadCategory">
+                        <option value="">None</option>
+                        <template x-for="c in (categories[uploadDomain] || [])" :key="c">
+                            <option :value="c" x-text="c.replace(/_/g, ' ')"></option>
+                        </template>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Subject</label>
+                <select x-model="uploadSubject">
+                    <option value="">None</option>
+                    <template x-for="s in subjects" :key="s.id">
+                        <option :value="s.id" x-text="s.name"></option>
+                    </template>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Tags (comma-separated)</label>
+                <input type="text" x-model="uploadTags" placeholder="e.g. urgent, 2024">
+            </div>
+
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showUpload = false">Cancel</button>
+                <button class="btn btn-primary" @click="doUpload()" :disabled="!uploadFile || uploading">
+                    <span x-show="!uploading">Upload</span>
+                    <span x-show="uploading">Uploading...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Document Modal -->
+    <div class="modal-overlay" x-show="showEditDoc" @click.self="showEditDoc = false"
+         x-transition style="display:none;">
+        <div class="modal">
+            <h3>Edit Document</h3>
+            <div class="form-group">
+                <label>Title</label>
+                <input type="text" x-model="editTitle">
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                <div class="form-group">
+                    <label>Domain</label>
+                    <select x-model="editDomain">
+                        <option value="">None</option>
+                        <template x-for="d in domains" :key="d">
+                            <option :value="d" x-text="d.charAt(0).toUpperCase() + d.slice(1)"></option>
+                        </template>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select x-model="editCategory">
+                        <option value="">None</option>
+                        <template x-for="c in (categories[editDomain] || [])" :key="c">
+                            <option :value="c" x-text="c.replace(/_/g, ' ')"></option>
+                        </template>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Subject</label>
+                <select x-model="editSubject">
+                    <option value="">None</option>
+                    <template x-for="s in subjects" :key="s.id">
+                        <option :value="s.id" x-text="s.name"></option>
+                    </template>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Tags (comma-separated)</label>
+                <input type="text" x-model="editTags">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showEditDoc = false">Cancel</button>
+                <button class="btn btn-primary" @click="saveDocEdit()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Subject Modal -->
+    <div class="modal-overlay" x-show="showNewSubject" @click.self="showNewSubject = false"
+         x-transition style="display:none;">
+        <div class="modal">
+            <h3>New Subject</h3>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" x-model="newSubjectName">
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select x-model="newSubjectType">
+                    <option value="person">Person</option>
+                    <option value="pet">Pet</option>
+                    <option value="vehicle">Vehicle</option>
+                    <option value="property">Property</option>
+                </select>
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showNewSubject = false">Cancel</button>
+                <button class="btn btn-primary" @click="createSubject()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" :class="toastType" x-show="toastMsg" x-text="toastMsg"
+         x-transition style="display:none;"></div>
+</div>
+
+<script>
+function lifeos() {
+    return {
+        // State
+        view: 'home',
+        prevView: null,
+        loading: false,
+        searchQuery: '',
+        lastSearchQuery: '',
+        searchResults: [],
+        documents: [],
+        totalDocs: 0,
+        page: 1,
+        perPage: 20,
+        filterDomain: null,
+        currentDoc: null,
+        subjects: [],
+        stats: {},
+        categories: {},
+        domains: ['medical', 'financial', 'auto', 'home', 'vet', 'legal', 'insurance'],
+
+        // Modals
+        showUpload: false,
+        showEditDoc: false,
+        showNewSubject: false,
+        isDragover: false,
+
+        // Upload form
+        uploadFile: null,
+        uploadTitle: '',
+        uploadDomain: '',
+        uploadCategory: '',
+        uploadSubject: '',
+        uploadTags: '',
+        uploading: false,
+
+        // Edit form
+        editTitle: '',
+        editDomain: '',
+        editCategory: '',
+        editSubject: '',
+        editTags: '',
+
+        // New subject
+        newSubjectName: '',
+        newSubjectType: 'person',
+
+        // Toast
+        toastMsg: '',
+        toastType: '',
+
+        async init() {
+            await Promise.all([
+                this.loadStats(),
+                this.loadDocuments(),
+                this.loadSubjects(),
+                this.loadCategories(),
+            ]);
+        },
+
+        navigate(v) {
+            this.prevView = this.view;
+            this.view = v;
+            if (v === 'documents') this.loadDocuments();
+            if (v === 'home') { this.loadStats(); this.loadDocuments(); }
+            if (v === 'subjects') this.loadSubjects();
+        },
+
+        async api(url, opts = {}) {
+            try {
+                const res = await fetch(url, opts);
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || err.message || res.statusText);
+                }
+                return await res.json();
+            } catch (e) {
+                this.toast(e.message, 'error');
+                throw e;
+            }
+        },
+
+        toast(msg, type = 'success') {
+            this.toastMsg = msg;
+            this.toastType = type;
+            setTimeout(() => { this.toastMsg = ''; }, 3000);
+        },
+
+        // ── Data Loading ────────────────────────────────
+        async loadStats() {
+            try {
+                const res = await this.api('/api/stats');
+                this.stats = res.data;
+            } catch {}
+        },
+
+        async loadDocuments() {
+            this.loading = true;
+            try {
+                let url = `/api/documents?page=${this.page}&per_page=${this.perPage}`;
+                if (this.filterDomain) url += `&domain=${this.filterDomain}`;
+                const res = await this.api(url);
+                this.documents = res.data;
+                this.totalDocs = res.meta.total;
+            } catch {}
+            this.loading = false;
+        },
+
+        async loadSubjects() {
+            try {
+                const res = await this.api('/api/subjects');
+                this.subjects = res.data;
+            } catch {}
+        },
+
+        async loadCategories() {
+            try {
+                const res = await this.api('/api/categories');
+                this.categories = res.data;
+            } catch {}
+        },
+
+        // ── Search ──────────────────────────────────────
+        async doSearch() {
+            if (!this.searchQuery.trim()) return;
+            this.lastSearchQuery = this.searchQuery;
+            this.loading = true;
+            this.view = 'search';
+            try {
+                let url = `/api/search?q=${encodeURIComponent(this.searchQuery)}`;
+                if (this.filterDomain) url += `&domain=${this.filterDomain}`;
+                const res = await this.api(url);
+                this.searchResults = res.data;
+            } catch {}
+            this.loading = false;
+        },
+
+        // ── Document Actions ────────────────────────────
+        async viewDocument(id) {
+            this.prevView = this.view;
+            this.view = 'detail';
+            this.currentDoc = null;
+            try {
+                const res = await this.api(`/api/documents/${id}`);
+                this.currentDoc = res.data;
+                // Populate edit form
+                this.editTitle = res.data.title || '';
+                this.editDomain = res.data.domain || '';
+                this.editCategory = res.data.category || '';
+                this.editSubject = res.data.subject_id || '';
+                this.editTags = (res.data.tags || []).join(', ');
+            } catch {
+                this.navigate(this.prevView || 'documents');
+            }
+        },
+
+        async viewSubject(id) {
+            // For now just filter documents by subject
+            this.filterDomain = null;
+            this.page = 1;
+            this.navigate('documents');
+            // Note: subject_id filter will need a small tweak in loadDocuments
+        },
+
+        async deleteDocument(id) {
+            if (!confirm('Delete this document?')) return;
+            try {
+                await this.api(`/api/documents/${id}`, { method: 'DELETE' });
+                this.toast('Document deleted');
+                this.navigate('documents');
+            } catch {}
+        },
+
+        async saveDocEdit() {
+            if (!this.currentDoc) return;
+            const body = {};
+            if (this.editTitle) body.title = this.editTitle;
+            if (this.editDomain) body.domain = this.editDomain;
+            if (this.editCategory) body.category = this.editCategory;
+            if (this.editSubject) body.subject_id = this.editSubject;
+            body.tags = this.editTags.split(',').map(t => t.trim()).filter(Boolean);
+
+            try {
+                await this.api(`/api/documents/${this.currentDoc.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                this.showEditDoc = false;
+                this.toast('Document updated');
+                await this.viewDocument(this.currentDoc.id);
+            } catch {}
+        },
+
+        // ── Upload ──────────────────────────────────────
+        handleDrop(e) {
+            this.uploadFile = e.dataTransfer.files[0];
+        },
+
+        async doUpload() {
+            if (!this.uploadFile) return;
+            this.uploading = true;
+            const fd = new FormData();
+            fd.append('file', this.uploadFile);
+            if (this.uploadTitle) fd.append('title', this.uploadTitle);
+            if (this.uploadDomain) fd.append('domain', this.uploadDomain);
+            if (this.uploadCategory) fd.append('category', this.uploadCategory);
+            if (this.uploadSubject) fd.append('subject_id', this.uploadSubject);
+            if (this.uploadTags) fd.append('tags', this.uploadTags);
+
+            try {
+                const res = await this.api('/api/documents/upload', { method: 'POST', body: fd });
+                this.showUpload = false;
+                this.uploadFile = null;
+                this.uploadTitle = '';
+                this.uploadDomain = '';
+                this.uploadCategory = '';
+                this.uploadSubject = '';
+                this.uploadTags = '';
+                this.toast(`Uploaded: ${res.data.title} (${res.data.chunks} chunks)`);
+                this.loadDocuments();
+                this.loadStats();
+            } catch {}
+            this.uploading = false;
+        },
+
+        // ── Subjects ────────────────────────────────────
+        async createSubject() {
+            if (!this.newSubjectName.trim()) return;
+            try {
+                await this.api('/api/subjects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: this.newSubjectName, type: this.newSubjectType }),
+                });
+                this.showNewSubject = false;
+                this.newSubjectName = '';
+                this.toast('Subject created');
+                this.loadSubjects();
+            } catch {}
+        },
+
+        // ── Helpers ─────────────────────────────────────
+        domainColor(d) {
+            const colors = {
+                medical: '#ef4444', financial: '#6366f1', auto: '#f59e0b',
+                home: '#10b981', vet: '#ec4899', legal: '#8b5cf6', insurance: '#3b82f6',
+            };
+            return colors[d] || '#6b7280';
+        },
+
+        formatBytes(b) {
+            if (!b) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            let size = b;
+            while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+            return size.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        },
+    };
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,83 @@
+# ============================================================================
+# LifeOS — Self-hosted Life Management Platform
+# ============================================================================
+# Deploy:
+#   1. Copy .env.example to .env and fill in values
+#   2. sudo mkdir -p /srv/lifeos
+#   3. docker compose up -d --build
+# ============================================================================
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: lifeos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lifeos}
+      POSTGRES_USER: ${POSTGRES_USER:-lifeos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ${DATA_PATH:-/srv/lifeos}/postgres:/var/lib/postgresql/data
+      - ./api/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lifeos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Qdrant Vector Database ────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: lifeos-qdrant
+    restart: unless-stopped
+    volumes:
+      - ${DATA_PATH:-/srv/lifeos}/qdrant:/qdrant/storage
+    ports:
+      - "127.0.0.1:6334:6333"
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+
+  # ── API Service ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: lifeos-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lifeos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-lifeos}
+      QDRANT_URL: http://qdrant:6333
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      UPLOAD_DIR: /data/documents
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+    volumes:
+      - ${DATA_PATH:-/srv/lifeos}/documents:/data/documents
+    ports:
+      - "127.0.0.1:8100:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: "3"
+
+  # ── Nginx (Web UI + Reverse Proxy) ────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: lifeos-nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+    volumes:
+      - ./web/dist:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8180:80"

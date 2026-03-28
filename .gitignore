@@ -1,0 +1,25 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (data lives on host at /srv/lifeos/)
+postgres_data/
+qdrant_data/
+
+# Uploads (managed separately)
+uploads/
+
+# fastembed model cache
+.cache/

@@ -1,0 +1,26 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.19
+
+# Database
+asyncpg==0.30.0
+
+# Vector database
+qdrant-client==1.12.1
+
+# AI (stub for Phase 2)
+anthropic==0.42.0
+fastembed==0.4.2
+
+# Document processing
+pdfplumber==0.11.4
+pytesseract==0.3.13
+ocrmypdf==16.7.0
+Pillow>=10.3.0,<11.0.0
+python-magic==0.4.27
+chardet==5.2.0
+
+# Utilities
+pydantic==2.10.3
+pydantic-settings==2.7.0
+aiofiles==24.1.0
