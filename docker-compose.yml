@@ -59,6 +59,10 @@ services:
       UPLOAD_DIR: /data/documents
       SECRET_KEY: ${SECRET_KEY:-change-me}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      INBOX_ENABLED: ${INBOX_ENABLED:-true}
+      INBOX_DIR: /data/documents/inbox
+      INBOX_POLL_INTERVAL: ${INBOX_POLL_INTERVAL:-10}
+      INBOX_STABILITY_SECONDS: ${INBOX_STABILITY_SECONDS:-5}
     volumes:
       - ${DATA_PATH:-/srv/lifeos}/documents:/data/documents
     ports:

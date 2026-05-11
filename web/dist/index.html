@@ -100,7 +100,12 @@
         .btn-primary:hover { background: var(--primary-hover); }
         .btn-danger { color: var(--danger); }
         .btn-danger:hover { background: rgba(239,68,68,0.1); }
+        .btn-success { color: var(--success); }
+        .btn-success:hover { background: rgba(16,185,129,0.1); }
+        .btn-warning { color: var(--warning); }
+        .btn-warning:hover { background: rgba(245,158,11,0.1); }
         .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+        .btn-xs { padding: 0.2rem 0.45rem; font-size: 0.7rem; }
 
         /* ── Sidebar ────────────────────────────────────── */
         .sidebar {
@@ -131,6 +136,11 @@
             margin-left: auto; font-size: 0.7rem;
             background: var(--bg); padding: 0.1rem 0.4rem;
             border-radius: 10px; color: var(--text-faint);
+        }
+        .nav-item .count-alert {
+            margin-left: auto; font-size: 0.7rem;
+            background: rgba(239,68,68,0.15); padding: 0.1rem 0.4rem;
+            border-radius: 10px; color: var(--danger);
         }
 
         .domain-dot {
@@ -190,6 +200,20 @@
         .badge-legal { background: rgba(139,92,246,0.12); color: #8b5cf6; }
         .badge-insurance { background: rgba(59,130,246,0.12); color: #3b82f6; }
 
+        .badge-ai-pending { background: rgba(139,143,163,0.15); color: var(--text-muted); }
+        .badge-ai-analyzing { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .badge-ai-complete { background: rgba(16,185,129,0.15); color: var(--success); }
+        .badge-ai-failed { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+        .badge-priority-high { background: rgba(239,68,68,0.12); color: #ef4444; }
+        .badge-priority-medium { background: rgba(245,158,11,0.12); color: #f59e0b; }
+        .badge-priority-low { background: rgba(139,143,163,0.12); color: var(--text-muted); }
+
+        .badge-status-pending { background: rgba(245,158,11,0.12); color: #f59e0b; }
+        .badge-status-in_progress { background: rgba(59,130,246,0.12); color: #3b82f6; }
+        .badge-status-completed { background: rgba(16,185,129,0.12); color: #10b981; }
+        .badge-status-dismissed { background: rgba(139,143,163,0.12); color: var(--text-muted); }
+
         /* ── Modal ──────────────────────────────────────── */
         .modal-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -201,6 +225,7 @@
             border-radius: var(--radius); max-width: 560px; width: 100%;
             max-height: 90vh; overflow-y: auto; padding: 1.5rem;
         }
+        .modal-lg { max-width: 720px; }
         .modal h3 { font-size: 1rem; margin-bottom: 1rem; }
 
         .form-group { margin-bottom: 1rem; }
@@ -236,7 +261,7 @@
 
         /* ── Detail View ───────────────────────────────── */
         .detail-grid {
-            display: grid; grid-template-columns: 1fr 300px; gap: 1.5rem;
+            display: grid; grid-template-columns: 1fr 320px; gap: 1.5rem;
         }
         .detail-meta-row {
             display: flex; gap: 0.5rem; margin-bottom: 0.5rem;
@@ -249,6 +274,17 @@
             max-height: 500px; overflow-y: auto;
             font-size: 0.8rem; white-space: pre-wrap;
             line-height: 1.7; color: var(--text-muted);
+        }
+
+        /* ── AI Summary Box ─────────────────────────────── */
+        .ai-summary-box {
+            background: var(--primary-muted); border: 1px solid rgba(77,184,164,0.3);
+            border-radius: var(--radius); padding: 1rem; margin-bottom: 1rem;
+            font-size: 0.85rem; line-height: 1.6;
+        }
+        .ai-summary-box .label {
+            font-size: 0.7rem; font-weight: 600; color: var(--primary);
+            text-transform: uppercase; margin-bottom: 0.3rem;
         }
 
         /* ── Search Results ─────────────────────────────── */
@@ -268,7 +304,7 @@
 
         /* ── Stats ──────────────────────────────────────── */
         .stats-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
             gap: 0.75rem; margin-bottom: 1.5rem;
         }
         .stat-card {
@@ -277,6 +313,45 @@
         }
         .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
         .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+        /* ── Action Items ──────────────────────────────── */
+        .action-item {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 0.75rem 1rem;
+            margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem;
+        }
+        .action-item.overdue { border-left: 3px solid var(--danger); }
+        .action-item-content { flex: 1; min-width: 0; }
+        .action-item-title { font-size: 0.85rem; font-weight: 500; }
+        .action-item-meta {
+            font-size: 0.7rem; color: var(--text-muted);
+            display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.2rem;
+        }
+        .action-item-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
+
+        /* ── Q&A Chat ──────────────────────────────────── */
+        .qa-container {
+            max-width: 700px;
+        }
+        .qa-input-row {
+            display: flex; gap: 0.5rem; margin-bottom: 1.5rem;
+        }
+        .qa-input-row input { flex: 1; }
+        .qa-answer {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1.25rem;
+            font-size: 0.85rem; line-height: 1.7; white-space: pre-wrap;
+        }
+        .qa-sources {
+            margin-top: 1rem; padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+        }
+        .qa-sources .label { font-size: 0.7rem; color: var(--text-faint); margin-bottom: 0.4rem; }
+        .qa-source-link {
+            display: inline-block; font-size: 0.78rem; color: var(--primary);
+            cursor: pointer; margin-right: 1rem; margin-bottom: 0.3rem;
+        }
+        .qa-source-link:hover { text-decoration: underline; }
 
         /* ── Loading / Empty ────────────────────────────── */
         .loading { text-align: center; padding: 3rem; color: var(--text-muted); }
@@ -298,6 +373,19 @@
             from { transform: translateY(1rem); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
+
+        /* ── Tab Bar ───────────────────────────────────── */
+        .tab-bar {
+            display: flex; gap: 0; margin-bottom: 1.25rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .tab-btn {
+            padding: 0.5rem 1rem; font-size: 0.8rem; color: var(--text-muted);
+            background: none; border: none; cursor: pointer;
+            border-bottom: 2px solid transparent; transition: all var(--transition);
+        }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 
         /* ── Responsive ─────────────────────────────────── */
         @media (max-width: 768px) {
@@ -347,7 +435,16 @@
             <div class="sidebar-label">Navigation</div>
             <button class="nav-item" :class="{ active: view === 'home' }" @click="navigate('home')">Dashboard</button>
             <button class="nav-item" :class="{ active: view === 'documents' && !filterDomain }" @click="filterDomain = null; navigate('documents')">All Documents</button>
+            <button class="nav-item" :class="{ active: view === 'actions' }" @click="navigate('actions')">
+                Actions
+                <span class="count-alert" x-show="stats?.pending_actions > 0" x-text="stats?.pending_actions"></span>
+            </button>
+            <button class="nav-item" :class="{ active: view === 'ask' }" @click="navigate('ask')">Ask AI</button>
             <button class="nav-item" :class="{ active: view === 'subjects' }" @click="navigate('subjects')">Subjects</button>
+            <button class="nav-item" :class="{ active: view === 'review' }" @click="navigate('review')">
+                Review Queue
+                <span class="count-alert" x-show="stats?.needs_review > 0" x-text="stats?.needs_review"></span>
+            </button>
         </div>
 
         <div class="sidebar-section">
@@ -387,7 +484,59 @@
                         <div class="stat-value" x-text="stats?.subjects || 0"></div>
                         <div class="stat-label">Subjects</div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-value" x-text="stats?.pending_actions || 0"></div>
+                        <div class="stat-label">Pending Actions</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" x-text="stats?.needs_review || 0"></div>
+                        <div class="stat-label">Needs Review</div>
+                    </div>
                 </div>
+
+                <!-- Expiration Alerts -->
+                <template x-if="expirations.length > 0">
+                    <div style="margin-bottom: 1.5rem;">
+                        <div class="page-header"><h2>Upcoming Expirations</h2></div>
+                        <template x-for="exp in expirations.slice(0, 5)" :key="exp.id">
+                            <div class="action-item" :class="{ overdue: exp.is_expired }" @click="viewDocument(exp.id)">
+                                <div class="action-item-content">
+                                    <div class="action-item-title" x-text="exp.title"></div>
+                                    <div class="action-item-meta">
+                                        <span class="badge" :class="'badge-' + exp.domain" x-text="exp.domain" x-show="exp.domain"></span>
+                                        <span x-text="exp.is_expired ? 'Expired ' + Math.abs(exp.days_until) + 'd ago' : 'Expires in ' + exp.days_until + ' days'"></span>
+                                        <span x-text="formatDate(exp.expiration_date)"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- Overdue Actions -->
+                <template x-if="overdueActions.length > 0">
+                    <div style="margin-bottom: 1.5rem;">
+                        <div class="page-header"><h2>Overdue Actions</h2></div>
+                        <template x-for="a in overdueActions.slice(0, 5)" :key="a.id">
+                            <div class="action-item overdue">
+                                <div class="action-item-content">
+                                    <div class="action-item-title" x-text="a.title"></div>
+                                    <div class="action-item-meta">
+                                        <span class="badge" :class="'badge-' + a.domain" x-text="a.domain" x-show="a.domain"></span>
+                                        <span x-text="formatDate(a.due_date)"></span>
+                                        <span x-text="a.document_title" x-show="a.document_title"
+                                              style="color:var(--primary); cursor:pointer; text-decoration:underline;"
+                                              @click.stop="viewDocument(a.source_document_id)"></span>
+                                    </div>
+                                </div>
+                                <div class="action-item-actions">
+                                    <button class="btn btn-xs btn-success" @click.stop="updateAction(a.id, 'completed')">Done</button>
+                                    <button class="btn btn-xs" @click.stop="updateAction(a.id, 'dismissed')">Dismiss</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
 
                 <div class="page-header"><h2>Recent Documents</h2></div>
                 <div class="card-grid">
@@ -397,6 +546,7 @@
                             <div class="doc-card-meta">
                                 <span class="badge" :class="'badge-' + doc.domain" x-text="doc.domain" x-show="doc.domain"></span>
                                 <span x-text="doc.category?.replace(/_/g, ' ')" x-show="doc.category"></span>
+                                <span class="badge" :class="'badge-ai-' + doc.ai_status" x-text="doc.ai_status" x-show="doc.ai_status && doc.ai_status !== 'complete'"></span>
                                 <span x-text="formatDate(doc.ingested_at)"></span>
                                 <span x-text="formatBytes(doc.file_size_bytes)"></span>
                             </div>
@@ -428,6 +578,7 @@
                             <div class="doc-card-meta">
                                 <span class="badge" :class="'badge-' + doc.domain" x-text="doc.domain" x-show="doc.domain"></span>
                                 <span x-text="doc.category?.replace(/_/g, ' ')" x-show="doc.category"></span>
+                                <span class="badge" :class="'badge-ai-' + doc.ai_status" x-text="doc.ai_status" x-show="doc.ai_status && doc.ai_status !== 'complete'"></span>
                                 <span x-text="formatDate(doc.ingested_at)"></span>
                                 <span x-text="formatBytes(doc.file_size_bytes)"></span>
                             </div>
@@ -463,84 +614,166 @@
                         <h2 x-text="currentDoc?.title"></h2>
                     </div>
                     <div style="display:flex; gap:0.5rem;">
+                        <button class="btn btn-sm" @click="reanalyze(currentDoc?.id)" x-show="currentDoc?.ai_status !== 'analyzing'">Re-analyze</button>
                         <button class="btn btn-sm" @click="showEditDoc = true">Edit</button>
-                        <a class="btn btn-sm" :href="'/api/documents/' + currentDoc?.id + '/file'" target="_blank">Download</a>
+                        <a class="btn btn-sm" :href="'/api/documents/' + currentDoc?.id + '/file?download=true'" target="_blank">Download</a>
                         <button class="btn btn-sm btn-danger" @click="deleteDocument(currentDoc?.id)">Delete</button>
                     </div>
                 </div>
 
-                <div class="detail-grid" x-show="currentDoc">
-                    <div>
-                        <!-- File preview -->
-                        <div x-show="currentDoc?.mime_type === 'application/pdf'" style="margin-bottom:1rem;">
-                            <iframe :src="'/api/documents/' + currentDoc?.id + '/file'"
-                                    style="width:100%; height:500px; border:1px solid var(--border); border-radius:var(--radius);"></iframe>
+                <div x-show="currentDoc">
+                    <!-- AI Summary -->
+                    <div class="ai-summary-box" x-show="currentDoc?.ai_summary">
+                        <div class="label">AI Summary</div>
+                        <div x-text="currentDoc?.ai_summary"></div>
+                        <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                            <span class="badge" :class="'badge-ai-' + currentDoc?.ai_status" x-text="'AI: ' + currentDoc?.ai_status"></span>
+                            <span class="badge" x-show="currentDoc?.ai_confidence" x-text="'Confidence: ' + (currentDoc?.ai_confidence * 100).toFixed(0) + '%'"></span>
+                            <span class="badge" x-show="currentDoc?.document_date" x-text="'Doc date: ' + currentDoc?.document_date"></span>
+                            <span class="badge badge-priority-high" x-show="currentDoc?.expiration_date" x-text="'Expires: ' + currentDoc?.expiration_date"></span>
                         </div>
-                        <div x-show="currentDoc?.mime_type?.startsWith('image/')" style="margin-bottom:1rem;">
-                            <img :src="'/api/documents/' + currentDoc?.id + '/file'"
-                                 style="max-width:100%; border-radius:var(--radius);">
-                        </div>
-
-                        <h3 style="font-size:0.85rem; margin-bottom:0.5rem; color:var(--text-muted);">Extracted Text</h3>
-                        <div class="detail-content" x-text="currentDoc?.content_text || '(no text extracted)'"></div>
                     </div>
 
-                    <div>
-                        <div class="card" style="cursor:default;">
-                            <h3 style="font-size:0.85rem; margin-bottom:0.75rem;">Metadata</h3>
-                            <div class="detail-meta-row">
-                                <span class="label">Domain</span>
-                                <span class="badge" :class="'badge-' + currentDoc?.domain"
-                                      x-text="currentDoc?.domain || 'none'" x-show="currentDoc?.domain"></span>
-                                <span x-show="!currentDoc?.domain" style="color:var(--text-faint)">—</span>
+                    <!-- Analyzing indicator (auto-refreshes) -->
+                    <div class="ai-summary-box" x-show="currentDoc?.ai_status === 'analyzing'" style="background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3);"
+                         x-effect="if (currentDoc?.ai_status === 'analyzing') { clearInterval($data._aiPoll); $data._aiPoll = setInterval(() => pollDocStatus(currentDoc.id), 3000); } else { clearInterval($data._aiPoll); }">
+                        <div class="label" style="color: var(--warning);">AI Analyzing...</div>
+                        <div style="color: var(--text-muted);">Document is being analyzed by AI. This will update automatically.</div>
+                    </div>
+
+                    <div class="detail-grid">
+                        <div>
+                            <!-- File preview -->
+                            <div x-show="currentDoc?.mime_type === 'application/pdf'" style="margin-bottom:1rem;">
+                                <iframe :src="'/api/documents/' + currentDoc?.id + '/file'"
+                                        style="width:100%; height:500px; border:1px solid var(--border); border-radius:var(--radius);"></iframe>
                             </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Category</span>
-                                <span x-text="currentDoc?.category?.replace(/_/g, ' ') || '—'"></span>
+                            <div x-show="currentDoc?.mime_type?.startsWith('image/')" style="margin-bottom:1rem;">
+                                <img :src="'/api/documents/' + currentDoc?.id + '/file'"
+                                     style="max-width:100%; border-radius:var(--radius);">
                             </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Subject</span>
-                                <span x-text="currentDoc?.subject_name || '—'"></span>
+
+                            <!-- Action items from this doc -->
+                            <template x-if="currentDoc?.action_items?.length > 0">
+                                <div style="margin-bottom: 1rem;">
+                                    <h3 style="font-size:0.85rem; margin-bottom:0.5rem; color:var(--text-muted);">Extracted Actions</h3>
+                                    <template x-for="a in currentDoc.action_items" :key="a.id">
+                                        <div class="action-item" :class="{ overdue: a.due_date && new Date(a.due_date) < new Date() && a.status === 'pending' }">
+                                            <div class="action-item-content">
+                                                <div class="action-item-title" x-text="a.title"></div>
+                                                <div class="action-item-meta">
+                                                    <span class="badge" :class="'badge-priority-' + a.priority" x-text="a.priority"></span>
+                                                    <span x-text="a.due_date ? 'Due: ' + formatDate(a.due_date) : 'No due date'"></span>
+                                                    <span class="badge" :class="'badge-status-' + a.status" x-text="a.status"></span>
+                                                </div>
+                                            </div>
+                                            <div class="action-item-actions">
+                                                <button class="btn btn-xs btn-success" @click.stop="updateAction(a.id, 'completed')" x-show="a.status !== 'completed'">Done</button>
+                                                <button class="btn btn-xs" @click.stop="updateAction(a.id, 'dismissed')" x-show="a.status !== 'dismissed'">Dismiss</button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+
+                            <!-- Extracted data -->
+                            <template x-if="currentDoc?.ai_extracted_data && Object.keys(currentDoc.ai_extracted_data).length > 0">
+                                <div style="margin-bottom: 1rem;">
+                                    <h3 style="font-size:0.85rem; margin-bottom:0.5rem; color:var(--text-muted);">Extracted Data</h3>
+                                    <div class="detail-content" style="max-height:200px;">
+                                        <template x-for="[key, val] in Object.entries(currentDoc.ai_extracted_data)" :key="key">
+                                            <div x-show="val" style="margin-bottom: 0.3rem;">
+                                                <span style="color:var(--primary); font-weight:500;" x-text="key.replace(/_/g, ' ') + ': '"></span>
+                                                <span x-text="Array.isArray(val) ? val.join(', ') : val"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <h3 style="font-size:0.85rem; margin-bottom:0.5rem; color:var(--text-muted);">Extracted Text</h3>
+                            <div class="detail-content" x-text="currentDoc?.content_text || '(no text extracted)'"></div>
+                        </div>
+
+                        <div>
+                            <div class="card" style="cursor:default;">
+                                <h3 style="font-size:0.85rem; margin-bottom:0.75rem;">Metadata</h3>
+                                <div class="detail-meta-row">
+                                    <span class="label">Domain</span>
+                                    <span class="badge" :class="'badge-' + currentDoc?.domain"
+                                          x-text="currentDoc?.domain || 'none'" x-show="currentDoc?.domain"></span>
+                                    <span x-show="!currentDoc?.domain" style="color:var(--text-faint)">--</span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Category</span>
+                                    <span x-text="currentDoc?.category?.replace(/_/g, ' ') || '--'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Subject</span>
+                                    <span x-text="currentDoc?.subject_name || '--'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">File</span>
+                                    <span x-text="currentDoc?.original_filename || '--'" style="word-break:break-all;"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Size</span>
+                                    <span x-text="formatBytes(currentDoc?.file_size_bytes)"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Type</span>
+                                    <span x-text="currentDoc?.mime_type || '--'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Pages</span>
+                                    <span x-text="currentDoc?.page_count || '--'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">OCR</span>
+                                    <span x-text="currentDoc?.ocr_applied ? 'Yes' : 'No'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Text Length</span>
+                                    <span x-text="(currentDoc?.text_length || 0).toLocaleString() + ' chars'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Chunks</span>
+                                    <span x-text="currentDoc?.chunks?.length || 0"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Embeddings</span>
+                                    <span x-text="currentDoc?.embedding_status || '--'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">AI Status</span>
+                                    <span class="badge" :class="'badge-ai-' + currentDoc?.ai_status" x-text="currentDoc?.ai_status || '--'"></span>
+                                </div>
+                                <div class="detail-meta-row" x-show="currentDoc?.review_status && currentDoc?.review_status !== 'none'">
+                                    <span class="label">Review</span>
+                                    <span class="badge badge-priority-high" x-text="currentDoc?.review_status"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Ingested</span>
+                                    <span x-text="formatDate(currentDoc?.ingested_at)"></span>
+                                </div>
+                                <div class="detail-meta-row" x-show="currentDoc?.document_date">
+                                    <span class="label">Doc Date</span>
+                                    <span x-text="formatDate(currentDoc?.document_date)"></span>
+                                </div>
+                                <div class="detail-meta-row" x-show="currentDoc?.expiration_date">
+                                    <span class="label">Expires</span>
+                                    <span style="color:var(--danger);" x-text="formatDate(currentDoc?.expiration_date)"></span>
+                                </div>
+                                <div class="detail-meta-row" x-show="currentDoc?.tags?.length">
+                                    <span class="label">Tags</span>
+                                    <span x-text="currentDoc?.tags?.join(', ')"></span>
+                                </div>
                             </div>
-                            <div class="detail-meta-row">
-                                <span class="label">File</span>
-                                <span x-text="currentDoc?.original_filename || '—'" style="word-break:break-all;"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Size</span>
-                                <span x-text="formatBytes(currentDoc?.file_size_bytes)"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Type</span>
-                                <span x-text="currentDoc?.mime_type || '—'"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Pages</span>
-                                <span x-text="currentDoc?.page_count || '—'"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">OCR</span>
-                                <span x-text="currentDoc?.ocr_applied ? 'Yes' : 'No'"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Text Length</span>
-                                <span x-text="(currentDoc?.text_length || 0).toLocaleString() + ' chars'"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Chunks</span>
-                                <span x-text="currentDoc?.chunks?.length || 0"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Embeddings</span>
-                                <span x-text="currentDoc?.embedding_status || '—'"></span>
-                            </div>
-                            <div class="detail-meta-row">
-                                <span class="label">Ingested</span>
-                                <span x-text="formatDate(currentDoc?.ingested_at)"></span>
-                            </div>
-                            <div class="detail-meta-row" x-show="currentDoc?.tags?.length">
-                                <span class="label">Tags</span>
-                                <span x-text="currentDoc?.tags?.join(', ')"></span>
+
+                            <!-- Review actions -->
+                            <div style="margin-top: 0.75rem;" x-show="currentDoc?.review_status === 'needs_review'">
+                                <button class="btn btn-sm btn-success" style="width:100%;"
+                                        @click="markReviewed(currentDoc?.id)">Mark as Reviewed</button>
                             </div>
                         </div>
                     </div>
@@ -597,6 +830,146 @@
             </div>
         </template>
 
+        <!-- Action Center -->
+        <template x-if="view === 'actions'">
+            <div>
+                <div class="page-header">
+                    <h2>Action Center</h2>
+                    <button class="btn btn-primary" @click="showNewAction = true">New Action</button>
+                </div>
+
+                <div class="tab-bar">
+                    <button class="tab-btn" :class="{ active: actionTab === 'all' }" @click="actionTab = 'all'; loadActions()">All</button>
+                    <button class="tab-btn" :class="{ active: actionTab === 'overdue' }" @click="actionTab = 'overdue'; loadActions()">
+                        Overdue
+                        <span x-show="overdueActions.length > 0" style="color:var(--danger);" x-text="'(' + overdueActions.length + ')'"></span>
+                    </button>
+                    <button class="tab-btn" :class="{ active: actionTab === 'upcoming' }" @click="actionTab = 'upcoming'; loadActions()">Upcoming</button>
+                    <button class="tab-btn" :class="{ active: actionTab === 'completed' }" @click="actionTab = 'completed'; loadActions()">Completed</button>
+                </div>
+
+                <!-- Domain filter -->
+                <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button class="btn btn-xs" :class="{ 'btn-primary': !actionDomainFilter }"
+                            @click="actionDomainFilter = null; loadActions()">All Domains</button>
+                    <template x-for="d in domains" :key="d">
+                        <button class="btn btn-xs" :class="{ 'btn-primary': actionDomainFilter === d }"
+                                @click="actionDomainFilter = d; loadActions()" x-text="d" style="text-transform:capitalize;"></button>
+                    </template>
+                </div>
+
+                <template x-for="a in actionItems" :key="a.id">
+                    <div class="action-item" :class="{ overdue: a.is_overdue }">
+                        <div class="action-item-content">
+                            <div class="action-item-title" x-text="a.title"></div>
+                            <div class="action-item-meta">
+                                <span class="badge" :class="'badge-' + a.domain" x-text="a.domain" x-show="a.domain"></span>
+                                <span class="badge" :class="'badge-priority-' + a.priority" x-text="a.priority"></span>
+                                <span x-text="a.due_date ? 'Due: ' + formatDate(a.due_date) : 'No due date'"></span>
+                                <span class="badge" :class="'badge-status-' + a.status" x-text="a.status"></span>
+                                <span x-text="a.document_title" x-show="a.document_title"
+                                      style="color:var(--primary); cursor:pointer; text-decoration:underline;"
+                                      @click.stop="viewDocument(a.source_document_id)"></span>
+                            </div>
+                            <div x-show="a.description" style="font-size:0.78rem; color:var(--text-faint); margin-top:0.3rem;"
+                                 x-text="a.description"></div>
+                        </div>
+                        <div class="action-item-actions">
+                            <template x-if="a.status !== 'completed'">
+                                <button class="btn btn-xs btn-success" @click.stop="updateAction(a.id, 'completed')">Done</button>
+                            </template>
+                            <template x-if="a.status !== 'dismissed' && a.status !== 'completed'">
+                                <button class="btn btn-xs" @click.stop="updateAction(a.id, 'dismissed')">Dismiss</button>
+                            </template>
+                            <template x-if="a.status === 'completed' || a.status === 'dismissed'">
+                                <button class="btn btn-xs" @click.stop="updateAction(a.id, 'pending')">Reopen</button>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="empty-state" x-show="actionItems.length === 0 && !loading">
+                    <p>No action items found.</p>
+                </div>
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
+        <!-- Ask AI (Q&A) -->
+        <template x-if="view === 'ask'">
+            <div class="qa-container">
+                <div class="page-header"><h2>Ask AI</h2></div>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem;">
+                    Ask questions about your documents. AI will search and synthesize answers from your uploaded content.
+                </p>
+
+                <div class="qa-input-row">
+                    <input type="text" x-model="qaQuestion" placeholder="e.g. When does my car registration expire?"
+                           @keydown.enter="askAI()"
+                           style="padding:0.5rem 0.75rem; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:0.85rem;">
+                    <button class="btn btn-primary" @click="askAI()" :disabled="!qaQuestion.trim() || qaLoading">
+                        <span x-show="!qaLoading">Ask</span>
+                        <span x-show="qaLoading">Thinking...</span>
+                    </button>
+                </div>
+
+                <!-- Optional domain filter -->
+                <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <span style="font-size:0.75rem; color:var(--text-faint); line-height:2;">Filter:</span>
+                    <button class="btn btn-xs" :class="{ 'btn-primary': !qaDomain }" @click="qaDomain = null">All</button>
+                    <template x-for="d in domains" :key="d">
+                        <button class="btn btn-xs" :class="{ 'btn-primary': qaDomain === d }"
+                                @click="qaDomain = d" x-text="d" style="text-transform:capitalize;"></button>
+                    </template>
+                </div>
+
+                <template x-if="qaAnswer">
+                    <div>
+                        <div class="qa-answer" x-text="qaAnswer"></div>
+                        <div class="qa-sources" x-show="qaSources.length > 0">
+                            <div class="label">Sources</div>
+                            <template x-for="src in qaSources" :key="src.document_id">
+                                <span class="qa-source-link" @click="viewDocument(src.document_id)" x-text="src.title || 'Document'"></span>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="loading" x-show="qaLoading">Searching and analyzing...</div>
+            </div>
+        </template>
+
+        <!-- Review Queue -->
+        <template x-if="view === 'review'">
+            <div>
+                <div class="page-header"><h2>Review Queue</h2></div>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem;">
+                    Documents with low AI confidence or failed analysis. Review and correct classification.
+                </p>
+
+                <template x-for="doc in reviewDocs" :key="doc.id">
+                    <div class="action-item" @click="viewDocument(doc.id)">
+                        <div class="action-item-content">
+                            <div class="action-item-title" x-text="doc.title"></div>
+                            <div class="action-item-meta">
+                                <span class="badge" :class="'badge-' + doc.domain" x-text="doc.domain" x-show="doc.domain"></span>
+                                <span class="badge" :class="'badge-ai-' + doc.ai_status" x-text="doc.ai_status"></span>
+                                <span x-show="doc.ai_confidence" x-text="'Confidence: ' + (doc.ai_confidence * 100).toFixed(0) + '%'"></span>
+                                <span x-text="formatDate(doc.ingested_at)"></span>
+                            </div>
+                            <div x-show="doc.ai_summary" style="font-size:0.78rem; color:var(--text-faint); margin-top:0.3rem;"
+                                 x-text="doc.ai_summary"></div>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="empty-state" x-show="reviewDocs.length === 0 && !loading">
+                    <p>No documents need review. All clear!</p>
+                </div>
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
     </main>
 
     <!-- Upload Modal -->
@@ -623,18 +996,18 @@
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                 <div class="form-group">
-                    <label>Domain</label>
+                    <label>Domain (optional, AI will classify)</label>
                     <select x-model="uploadDomain" @change="uploadCategory = ''">
-                        <option value="">None</option>
+                        <option value="">Auto-detect</option>
                         <template x-for="d in domains" :key="d">
                             <option :value="d" x-text="d.charAt(0).toUpperCase() + d.slice(1)"></option>
                         </template>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Category</label>
+                    <label>Category (optional)</label>
                     <select x-model="uploadCategory">
-                        <option value="">None</option>
+                        <option value="">Auto-detect</option>
                         <template x-for="c in (categories[uploadDomain] || [])" :key="c">
                             <option :value="c" x-text="c.replace(/_/g, ' ')"></option>
                         </template>
@@ -741,6 +1114,49 @@
         </div>
     </div>
 
+    <!-- New Action Modal -->
+    <div class="modal-overlay" x-show="showNewAction" @click.self="showNewAction = false"
+         x-transition style="display:none;">
+        <div class="modal">
+            <h3>New Action Item</h3>
+            <div class="form-group">
+                <label>Title</label>
+                <input type="text" x-model="newActionTitle">
+            </div>
+            <div class="form-group">
+                <label>Description (optional)</label>
+                <textarea x-model="newActionDesc" rows="2"></textarea>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                <div class="form-group">
+                    <label>Domain</label>
+                    <select x-model="newActionDomain">
+                        <option value="">None</option>
+                        <template x-for="d in domains" :key="d">
+                            <option :value="d" x-text="d.charAt(0).toUpperCase() + d.slice(1)"></option>
+                        </template>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <select x-model="newActionPriority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Due Date (optional)</label>
+                <input type="date" x-model="newActionDue">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showNewAction = false">Cancel</button>
+                <button class="btn btn-primary" @click="createAction()" :disabled="!newActionTitle.trim()">Create</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div class="toast" :class="toastType" x-show="toastMsg" x-text="toastMsg"
          x-transition style="display:none;"></div>
@@ -767,10 +1183,28 @@ function lifeos() {
         categories: {},
         domains: ['medical', 'financial', 'auto', 'home', 'vet', 'legal', 'insurance'],
 
+        // Actions
+        actionItems: [],
+        overdueActions: [],
+        actionTab: 'all',
+        actionDomainFilter: null,
+
+        // Q&A
+        qaQuestion: '',
+        qaAnswer: null,
+        qaSources: [],
+        qaLoading: false,
+        qaDomain: null,
+
+        // Review & Expirations
+        reviewDocs: [],
+        expirations: [],
+
         // Modals
         showUpload: false,
         showEditDoc: false,
         showNewSubject: false,
+        showNewAction: false,
         isDragover: false,
 
         // Upload form
@@ -793,6 +1227,13 @@ function lifeos() {
         newSubjectName: '',
         newSubjectType: 'person',
 
+        // New action
+        newActionTitle: '',
+        newActionDesc: '',
+        newActionDomain: '',
+        newActionPriority: 'medium',
+        newActionDue: '',
+
         // Toast
         toastMsg: '',
         toastType: '',
@@ -803,15 +1244,20 @@ function lifeos() {
                 this.loadDocuments(),
                 this.loadSubjects(),
                 this.loadCategories(),
+                this.loadOverdue(),
+                this.loadExpirations(),
             ]);
         },
 
         navigate(v) {
+            clearInterval(this._aiPoll);
             this.prevView = this.view;
             this.view = v;
             if (v === 'documents') this.loadDocuments();
-            if (v === 'home') { this.loadStats(); this.loadDocuments(); }
+            if (v === 'home') { this.loadStats(); this.loadDocuments(); this.loadOverdue(); this.loadExpirations(); }
             if (v === 'subjects') this.loadSubjects();
+            if (v === 'actions') this.loadActions();
+            if (v === 'review') this.loadReviewQueue();
         },
 
         async api(url, opts = {}) {
@@ -868,6 +1314,45 @@ function lifeos() {
             } catch {}
         },
 
+        async loadActions() {
+            this.loading = true;
+            try {
+                let url = '/api/actions?per_page=50';
+                if (this.actionTab === 'overdue') url = '/api/actions/overdue';
+                else if (this.actionTab === 'upcoming') url = '/api/actions/upcoming';
+                else if (this.actionTab === 'completed') url = '/api/actions?status=completed';
+                if (this.actionDomainFilter && !url.includes('overdue') && !url.includes('upcoming')) {
+                    url += `&domain=${this.actionDomainFilter}`;
+                }
+                const res = await this.api(url);
+                this.actionItems = res.data;
+            } catch {}
+            this.loading = false;
+        },
+
+        async loadOverdue() {
+            try {
+                const res = await this.api('/api/actions/overdue');
+                this.overdueActions = res.data;
+            } catch {}
+        },
+
+        async loadExpirations() {
+            try {
+                const res = await this.api('/api/expirations?days=60');
+                this.expirations = res.data;
+            } catch {}
+        },
+
+        async loadReviewQueue() {
+            this.loading = true;
+            try {
+                const res = await this.api('/api/documents/review');
+                this.reviewDocs = res.data;
+            } catch {}
+            this.loading = false;
+        },
+
         // ── Search ──────────────────────────────────────
         async doSearch() {
             if (!this.searchQuery.trim()) return;
@@ -883,6 +1368,24 @@ function lifeos() {
             this.loading = false;
         },
 
+        // ── Q&A ─────────────────────────────────────────
+        async askAI() {
+            if (!this.qaQuestion.trim()) return;
+            this.qaLoading = true;
+            this.qaAnswer = null;
+            this.qaSources = [];
+            try {
+                const res = await this.api('/api/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: this.qaQuestion, domain: this.qaDomain }),
+                });
+                this.qaAnswer = res.data.answer;
+                this.qaSources = res.data.sources || [];
+            } catch {}
+            this.qaLoading = false;
+        },
+
         // ── Document Actions ────────────────────────────
         async viewDocument(id) {
             this.prevView = this.view;
@@ -891,7 +1394,6 @@ function lifeos() {
             try {
                 const res = await this.api(`/api/documents/${id}`);
                 this.currentDoc = res.data;
-                // Populate edit form
                 this.editTitle = res.data.title || '';
                 this.editDomain = res.data.domain || '';
                 this.editCategory = res.data.category || '';
@@ -903,11 +1405,9 @@ function lifeos() {
         },
 
         async viewSubject(id) {
-            // For now just filter documents by subject
             this.filterDomain = null;
             this.page = 1;
             this.navigate('documents');
-            // Note: subject_id filter will need a small tweak in loadDocuments
         },
 
         async deleteDocument(id) {
@@ -940,6 +1440,80 @@ function lifeos() {
             } catch {}
         },
 
+        async reanalyze(id) {
+            try {
+                await this.api(`/api/documents/${id}/reanalyze`, { method: 'POST' });
+                this.toast('Re-analysis started');
+                if (this.currentDoc) this.currentDoc.ai_status = 'analyzing';
+            } catch {}
+        },
+
+        async pollDocStatus(id) {
+            try {
+                const res = await this.api(`/api/documents/${id}`);
+                if (res.data.ai_status !== 'analyzing') {
+                    clearInterval(this._aiPoll);
+                    this.currentDoc = res.data;
+                    this.toast('AI analysis complete');
+                }
+            } catch {}
+        },
+
+        async markReviewed(id) {
+            try {
+                await this.api(`/api/documents/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ review_status: 'reviewed' }),
+                });
+                this.toast('Marked as reviewed');
+                if (this.currentDoc) this.currentDoc.review_status = 'reviewed';
+                this.loadStats();
+            } catch {}
+        },
+
+        // ── Actions ─────────────────────────────────────
+        async updateAction(id, status) {
+            try {
+                await this.api(`/api/actions/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status }),
+                });
+                this.toast(`Action ${status}`);
+                // Refresh relevant lists
+                if (this.view === 'actions') this.loadActions();
+                if (this.view === 'home') { this.loadOverdue(); this.loadStats(); }
+                if (this.view === 'detail' && this.currentDoc) this.viewDocument(this.currentDoc.id);
+            } catch {}
+        },
+
+        async createAction() {
+            if (!this.newActionTitle.trim()) return;
+            try {
+                await this.api('/api/actions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: this.newActionTitle,
+                        description: this.newActionDesc || null,
+                        domain: this.newActionDomain || null,
+                        due_date: this.newActionDue || null,
+                        priority: this.newActionPriority,
+                    }),
+                });
+                this.showNewAction = false;
+                this.newActionTitle = '';
+                this.newActionDesc = '';
+                this.newActionDomain = '';
+                this.newActionPriority = 'medium';
+                this.newActionDue = '';
+                this.toast('Action created');
+                this.loadActions();
+                this.loadStats();
+            } catch {}
+        },
+
         // ── Upload ──────────────────────────────────────
         handleDrop(e) {
             this.uploadFile = e.dataTransfer.files[0];
@@ -965,7 +1539,7 @@ function lifeos() {
                 this.uploadCategory = '';
                 this.uploadSubject = '';
                 this.uploadTags = '';
-                this.toast(`Uploaded: ${res.data.title} (${res.data.chunks} chunks)`);
+                this.toast(`Uploaded: ${res.data.title} (AI analyzing...)`);
                 this.loadDocuments();
                 this.loadStats();
             } catch {}

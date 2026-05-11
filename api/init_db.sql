@@ -39,6 +39,13 @@ CREATE TABLE documents (
     ai_summary TEXT,
     ai_extracted_data JSONB,
     ai_action_items JSONB,
+    ai_status TEXT DEFAULT 'pending',       -- pending, analyzing, complete, failed, skipped
+    ai_confidence REAL,                     -- 0.0-1.0
+    review_status TEXT DEFAULT 'none',      -- none, needs_review, reviewed
+    document_date DATE,                     -- date extracted from document content
+    expiration_date DATE,                   -- expiration date if applicable
+    ai_analyzed_at TIMESTAMPTZ,
+    ai_prompt_version INTEGER DEFAULT 1,
     tags TEXT[] DEFAULT '{}',
     uploaded_by VARCHAR(100),
     ingested_at TIMESTAMPTZ DEFAULT NOW(),
@@ -85,6 +92,7 @@ CREATE TABLE time_series_metrics (
     value_text VARCHAR(100),                -- for non-numeric like "120/80"
     recorded_at TIMESTAMPTZ NOT NULL,
     source VARCHAR(50),                     -- manual, document_extract, agent_api
+    source_document_id UUID REFERENCES documents(id),
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -105,6 +113,7 @@ CREATE TABLE action_items (
     calendar_event_id VARCHAR(500),
     recurrence_rule TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ
 );
@@ -143,6 +152,10 @@ CREATE INDEX idx_documents_deleted ON documents(deleted_at) WHERE deleted_at IS 
 CREATE INDEX idx_documents_text_search ON documents
     USING gin(to_tsvector('english', COALESCE(title, '') || ' ' || COALESCE(content_text, '')));
 
+CREATE INDEX idx_documents_ai_status ON documents(ai_status);
+CREATE INDEX idx_documents_review_status ON documents(review_status) WHERE review_status = 'needs_review';
+CREATE INDEX idx_documents_expiration ON documents(expiration_date) WHERE expiration_date IS NOT NULL;
+
 -- Document Chunks
 CREATE INDEX idx_chunks_document ON document_chunks(document_id);
 
@@ -163,6 +176,8 @@ CREATE INDEX idx_metrics_subject_type_date
 CREATE INDEX idx_actions_status_due ON action_items(status, due_date);
 CREATE INDEX idx_actions_domain ON action_items(domain);
 CREATE INDEX idx_actions_deleted ON action_items(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_actions_subject ON action_items(subject_id);
+CREATE INDEX idx_actions_source_doc ON action_items(source_document_id);
 
 -- Audit Log
 CREATE INDEX idx_audit_action ON audit_log(action);

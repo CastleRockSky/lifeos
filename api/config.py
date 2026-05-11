@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 200
 
+    # Inbox watcher
+    inbox_enabled: bool = True
+    inbox_dir: str = "/data/documents/inbox"
+    inbox_poll_interval: int = 10
+    inbox_stability_seconds: int = 5
+
     class Config:
         env_file = ".env"
 
