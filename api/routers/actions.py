@@ -161,7 +161,8 @@ async def update_action(action_id: str, body: ActionItemUpdate, request: Request
 
     async with pool.acquire() as conn:
         existing = await conn.fetchrow(
-            "SELECT id FROM action_items WHERE id = $1 AND deleted_at IS NULL", aid
+            "SELECT id, recurrence_rule, source_record_id "
+            "FROM action_items WHERE id = $1 AND deleted_at IS NULL", aid
         )
         if not existing:
             raise HTTPException(404, "Action item not found")
@@ -180,6 +181,31 @@ async def update_action(action_id: str, body: ActionItemUpdate, request: Request
                 completed_at = COALESCE($7, completed_at)
             WHERE id = $1
         """, aid, body.status, due, body.notes, body.title, body.priority, completed_at)
+
+        # If a recurring action just got completed, queue the next occurrence.
+        if (
+            body.status == "completed"
+            and existing["recurrence_rule"]
+            and existing["source_record_id"]
+        ):
+            rec = await conn.fetchrow("""
+                SELECT id, record_type, data, subject_id, source_document_id
+                FROM structured_records WHERE id = $1 AND deleted_at IS NULL
+            """, existing["source_record_id"])
+            if rec:
+                from recurrences import ensure_recurring_action_item
+                rec_data = rec["data"] if isinstance(rec["data"], dict) else None
+                if rec_data is None:
+                    import json as _json
+                    rec_data = _json.loads(rec["data"])
+                await ensure_recurring_action_item(
+                    conn,
+                    record_type=rec["record_type"],
+                    record_id=rec["id"],
+                    data=rec_data,
+                    subject_id=rec["subject_id"],
+                    source_document_id=rec["source_document_id"],
+                )
 
     await audit_log("update", get_user_email(request), "action_items", action_id)
     return {"data": {"id": action_id, "updated": True}}

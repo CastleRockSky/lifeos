@@ -108,6 +108,18 @@ async def create_record(payload: RecordCreate, request: Request):
             payload.next_action_description,
         )
 
+        # Auto-generate the next pending action item for recurring financial records.
+        if payload.record_type in ("credit_account", "loan", "recurring_expense"):
+            from recurrences import ensure_recurring_action_item
+            await ensure_recurring_action_item(
+                conn,
+                record_type=payload.record_type,
+                record_id=row["id"],
+                data=cleaned,
+                subject_id=row["subject_id"],
+                source_document_id=row["source_document_id"],
+            )
+
     await audit_log("create", get_user_email(request), "structured_records",
                     str(row["id"]), {"record_type": payload.record_type})
     return {"data": _serialise(row)}

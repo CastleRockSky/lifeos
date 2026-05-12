@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import medical
+from . import medical, financial
 
 
 # record_type → Pydantic model
@@ -21,6 +21,12 @@ _REGISTRY: dict[str, Any] = {
     "condition": medical.Condition,
     "vaccination": medical.Vaccination,
     "lab_result_set": medical.LabResultSet,
+    # Financial
+    "bank_account": financial.BankAccount,
+    "credit_account": financial.CreditAccount,
+    "loan": financial.Loan,
+    "recurring_expense": financial.RecurringExpense,
+    "tax_item": financial.TaxItem,
 }
 
 

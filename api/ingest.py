@@ -275,6 +275,21 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                             json.dumps(data, default=str), uuid.UUID(doc_id))
                         record_id = new_row["id"]
 
+                    # Recurring action item for financial obligations.
+                    if rtype in ("credit_account", "loan", "recurring_expense"):
+                        try:
+                            from recurrences import ensure_recurring_action_item
+                            await ensure_recurring_action_item(
+                                conn,
+                                record_type=rtype,
+                                record_id=record_id,
+                                data=data,
+                                subject_id=resolved_subject_id,
+                                source_document_id=uuid.UUID(doc_id),
+                            )
+                        except Exception as rec_err:
+                            logger.warning(f"Recurring action item failed for {doc_id}: {rec_err}")
+
                     # Refill action item for medications.
                     if rtype == "medication":
                         refill = data.get("refill_date")

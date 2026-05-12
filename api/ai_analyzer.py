@@ -21,7 +21,7 @@ from constants import DOMAINS, CATEGORIES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_PROMPT_VERSION = 3
+CURRENT_PROMPT_VERSION = 4
 
 ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. Analyze the document and return structured JSON.
 
@@ -49,6 +49,7 @@ ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. A
 
 For certain document types, extract numeric measurements into the `metrics` array:
 - **medical** (lab_result, test_result): Extract lab values — glucose, total_cholesterol, LDL, HDL, HbA1c, triglycerides, blood_pressure, weight, BMI, TSH, vitamin_d, creatinine, etc. Use the test/service date as `recorded_at`.
+- **financial** (credit_card_statement, bank_statement, investment_statement): Extract balances and utilization as metrics: `credit_card_balance`, `bank_account_balance`, `investment_balance`, `net_worth`, `total_credit_utilization` (percent). Use the statement date as `recorded_at`. For credit_card_statement specifically, extract one `credit_card_balance` per card.
 - **auto** (service_record, inspection): Extract mileage readings as metric_type "mileage".
 - Each metric object: `{"metric_type": "glucose", "value": 102, "value_text": null, "recorded_at": "2024-03-15"}`
 - Use `value` (number) for pure numeric values. Use `value_text` (string) for compound values like blood pressure "120/80".
@@ -75,6 +76,21 @@ Supported record_type values and their data shapes:
 
 - **lab_result_set** (from lab reports — pair this with the `metrics` array, which holds the same numeric values for trending):
   `{"lab": "Quest Diagnostics", "ordering_provider": "Dr. Sarah Chen", "date": "2025-03-15", "results": [{"test": "Total Cholesterol", "value": 210, "unit": "mg/dL", "reference_range": "< 200", "flag": "high"}]}`
+
+- **bank_account** (from bank statements, account opening docs):
+  `{"institution": "Chase", "account_type": "checking", "last_four": "4567", "balance": 5432.10, "balance_date": "2025-03-27", "monthly_fee": 0, "notes": null}`
+
+- **credit_account** (from credit card statements — also emit `metrics`: `credit_card_balance` per card and `total_credit_utilization` if you can compute it):
+  `{"creditor": "Chase Sapphire", "last_four": "8901", "credit_limit": 15000, "current_balance": 3200.50, "balance_date": "2025-03-27", "apr": 24.99, "minimum_payment": 75, "payment_due_date": "2025-04-15", "autopay": true, "autopay_amount": "minimum", "notes": null}`
+
+- **loan** (from loan agreements, mortgage / auto / student / personal loan statements):
+  `{"lender": "US Bank", "loan_type": "auto", "original_amount": 28000, "current_balance": 18500, "balance_date": "2025-03-27", "interest_rate": 5.9, "monthly_payment": 485, "payment_due_day": 15, "remaining_payments": 42, "payoff_date": "2028-09-15", "collateral": "2023 Toyota Tacoma", "autopay": true, "notes": null}`
+
+- **recurring_expense** (from utility bills, subscription receipts, insurance policy bills):
+  `{"name": "Comcast Internet", "amount": 89.99, "frequency": "monthly", "due_day": 22, "category": "utilities", "autopay": true, "account": "Chase Checking *4567", "notes": null}`
+
+- **tax_item** (from IRS notices, estimated-tax voucher reminders, tax filing confirmations):
+  `{"tax_year": 2025, "item_type": "deadline", "description": "Q1 Estimated Tax Payment", "due_date": "2025-04-15", "amount": 2500, "status": "pending", "notes": "Federal + Colorado state"}`
 
 Rules:
 - Only extract records whose subject is genuinely the document's subject (skip records about other people mentioned in passing).

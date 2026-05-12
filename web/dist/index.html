@@ -448,6 +448,9 @@
             <button class="nav-item" :class="{ active: view === 'medical' }" @click="navigate('medical')">
                 Medical
             </button>
+            <button class="nav-item" :class="{ active: view === 'financial' }" @click="navigate('financial')">
+                Financial
+            </button>
         </div>
 
         <div class="sidebar-section">
@@ -1173,6 +1176,145 @@
             </div>
         </template>
 
+        <!-- Financial Dashboard -->
+        <template x-if="view === 'financial'">
+            <div>
+                <div class="page-header">
+                    <h2>Financial</h2>
+                    <span style="font-size:0.8rem; color:var(--text-muted);" x-text="medicalSubjectName"></span>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total debt</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="financial?.total_debt != null ? '$' + (financial.total_debt).toLocaleString(undefined, {maximumFractionDigits:0}) : '—'"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="financial?.debt_breakdown ? '$' + Math.round(financial.debt_breakdown.credit) + ' credit · $' + Math.round(financial.debt_breakdown.loan) + ' loans' : ''"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Monthly obligations</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="financial?.monthly_obligations != null ? '$' + Math.round(financial.monthly_obligations).toLocaleString() : '—'"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Credit utilization</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             :style="(financial?.credit_utilization_pct || 0) > 30 ? 'color:var(--danger);' : ''"
+                             x-text="financial?.credit_utilization_pct != null ? financial.credit_utilization_pct + '%' : '—'"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="financial?.total_credit_limit ? 'on $' + (financial.total_credit_limit).toLocaleString() + ' limit' : ''"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Due next 7 days</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="(financial?.upcoming_payments_7d || []).length"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="upcoming7dTotal()"></div>
+                    </div>
+                </div>
+
+                <!-- Upcoming payments (14 days) -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div class="page-header"><h2>Upcoming payments (14d)</h2></div>
+                    <template x-if="(financial?.upcoming || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">No payments due in the next 14 days.</p>
+                        </div>
+                    </template>
+                    <template x-for="p in (financial?.upcoming || [])" :key="p.record_id + ':' + p.due_date">
+                        <div class="action-item" :class="{ overdue: p.days_until <= 3 }">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="p.name"></span>
+                                    <span x-show="p.amount != null" style="color:var(--text-muted); font-weight:normal;"
+                                          x-text="' · $' + p.amount.toFixed(2)"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="p.type.replace('_', ' ')"></span>
+                                    <span x-text="formatDate(p.due_date) + ' · ' + (p.days_until === 0 ? 'today' : p.days_until + 'd')"></span>
+                                    <span class="badge" x-show="p.autopay" style="background:var(--success);">autopay</span>
+                                    <span x-show="p.account_last_four" x-text="' · *' + p.account_last_four"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Debts -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div class="page-header"><h2>Debts</h2></div>
+                    <template x-if="(financial?.debts || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">No debts on file.</p>
+                        </div>
+                    </template>
+                    <template x-for="d in (financial?.debts || [])" :key="d.record_id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="d.name || '(unnamed)'"></span>
+                                    <span style="color:var(--text-muted); font-weight:normal;"
+                                          x-text="d.last_four ? ' · *' + d.last_four : (d.loan_type ? ' · ' + d.loan_type : '')"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="d.type"></span>
+                                    <span x-show="d.balance != null" x-text="' · $' + Number(d.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})"></span>
+                                    <span x-show="d.limit" x-text="' / $' + Number(d.limit).toLocaleString()"></span>
+                                    <span x-show="d.minimum_payment" x-text="' · min $' + Number(d.minimum_payment).toFixed(2)"></span>
+                                    <span x-show="d.monthly_payment" x-text="' · $' + Number(d.monthly_payment).toFixed(2) + '/mo'"></span>
+                                    <span x-show="d.apr" x-text="' · ' + d.apr + '% APR'"></span>
+                                    <span x-show="d.interest_rate" x-text="' · ' + d.interest_rate + '%'"></span>
+                                    <span class="badge" x-show="d.autopay" style="background:var(--success);">autopay</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Bank accounts -->
+                <div style="margin-bottom: 1.5rem;" x-show="(financial?.accounts || []).length > 0">
+                    <div class="page-header"><h2>Accounts</h2></div>
+                    <template x-for="a in (financial?.accounts || [])" :key="a.record_id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="a.institution || '(unnamed)'"></span>
+                                    <span style="color:var(--text-muted); font-weight:normal;"
+                                          x-text="a.last_four ? ' · *' + a.last_four : ''"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="a.type || 'account'"></span>
+                                    <span x-show="a.balance != null" x-text="' · $' + Number(a.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})"></span>
+                                    <span x-show="a.balance_date" x-text="' as of ' + a.balance_date"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Tax timeline -->
+                <div style="margin-bottom: 1.5rem;" x-show="(financial?.taxItems || []).length > 0">
+                    <div class="page-header"><h2>Tax timeline</h2></div>
+                    <template x-for="t in (financial?.taxItems || [])" :key="t.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="t.data?.description || 'Tax item'"></div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="t.data?.tax_year || ''"></span>
+                                    <span x-show="t.data?.due_date" x-text="' · due ' + t.data.due_date"></span>
+                                    <span x-show="t.data?.amount != null" x-text="' · $' + Number(t.data.amount).toLocaleString()"></span>
+                                    <span class="badge" x-text="t.data?.status || 'pending'"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
     </main>
 
     <!-- Upload Modal -->
@@ -1410,6 +1552,9 @@ function lifeos() {
         medical: null,
         medicalSubjectName: '',
 
+        // Financial dashboard (Phase 6)
+        financial: null,
+
         // Modals
         showUpload: false,
         showEditDoc: false,
@@ -1470,6 +1615,7 @@ function lifeos() {
             if (v === 'actions') this.loadActions();
             if (v === 'review') this.loadReviewQueue();
             if (v === 'medical') this.loadMedical();
+            if (v === 'financial') this.loadFinancial();
         },
 
         async api(url, opts = {}) {
@@ -1624,6 +1770,151 @@ function lifeos() {
             } finally {
                 this.loading = false;
             }
+        },
+
+        async loadFinancial() {
+            this.loading = true;
+            try {
+                if (!this.subjects?.length) await this.loadSubjects();
+                const primary = (this.subjects || []).find((s) => s.is_primary) || (this.subjects || [])[0];
+                if (!primary) { this.financial = null; return; }
+                this.medicalSubjectName = primary.name;
+                const sid = primary.id;
+
+                const [credit, loans, recurring, banks, taxItems, upcoming] = await Promise.all([
+                    fetch('/api/records?record_type=credit_account&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=loan&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=recurring_expense&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=bank_account&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=tax_item&subject_id=' + sid).then((r) => r.json()),
+                    // Upcoming payments computed server-side, but the user UI doesn't have an
+                    // agent key — derive client-side from the records we just loaded.
+                    Promise.resolve(null),
+                ]);
+
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                const _nextMonthlyDue = (day) => {
+                    const cand = new Date(today.getFullYear(), today.getMonth(), Math.min(day, 28));
+                    if (cand < today) cand.setMonth(cand.getMonth() + 1);
+                    return cand;
+                };
+                const _next = (rec) => {
+                    const d = rec.data || {};
+                    if (rec.record_type === 'credit_account' && d.payment_due_date) {
+                        const dd = new Date(d.payment_due_date);
+                        return dd >= today ? dd : null;
+                    }
+                    if (rec.record_type === 'loan' && d.payment_due_day) {
+                        return _nextMonthlyDue(d.payment_due_day);
+                    }
+                    if (rec.record_type === 'recurring_expense' && (d.frequency || 'monthly') === 'monthly' && d.due_day) {
+                        return _nextMonthlyDue(d.due_day);
+                    }
+                    return null;
+                };
+
+                const all = [
+                    ...((credit.data) || []),
+                    ...((loans.data) || []),
+                    ...((recurring.data) || []),
+                ];
+                const cutoff14 = new Date(today); cutoff14.setDate(cutoff14.getDate() + 14);
+                const upcomingItems = [];
+                for (const r of all) {
+                    const due = _next(r);
+                    if (!due || due > cutoff14) continue;
+                    const d = r.data || {};
+                    upcomingItems.push({
+                        record_id: r.id,
+                        type: r.record_type,
+                        name: d.name || d.creditor || d.lender || '(unnamed)',
+                        amount: d.amount ?? d.minimum_payment ?? d.monthly_payment,
+                        due_date: due.toISOString().slice(0, 10),
+                        days_until: Math.round((due - today) / 86400000),
+                        autopay: !!d.autopay,
+                        account_last_four: d.last_four,
+                    });
+                }
+                upcomingItems.sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+                // Totals
+                let totalDebt = 0, debtCredit = 0, debtLoan = 0, totalLimit = 0;
+                let monthlyOblig = 0;
+                for (const r of (credit.data || [])) {
+                    const bal = r.data?.current_balance;
+                    if (typeof bal === 'number') { totalDebt += bal; debtCredit += bal; }
+                    const lim = r.data?.credit_limit;
+                    if (typeof lim === 'number') totalLimit += lim;
+                    if (typeof r.data?.minimum_payment === 'number') monthlyOblig += r.data.minimum_payment;
+                }
+                for (const r of (loans.data || [])) {
+                    const bal = r.data?.current_balance;
+                    if (typeof bal === 'number') { totalDebt += bal; debtLoan += bal; }
+                    if (typeof r.data?.monthly_payment === 'number') monthlyOblig += r.data.monthly_payment;
+                }
+                for (const r of (recurring.data || [])) {
+                    if ((r.data?.status || 'active') !== 'active') continue;
+                    if ((r.data?.frequency || 'monthly') !== 'monthly') continue;
+                    if (typeof r.data?.amount === 'number') monthlyOblig += r.data.amount;
+                }
+
+                // Debt list
+                const debts = [];
+                for (const r of (credit.data || [])) {
+                    const d = r.data || {};
+                    debts.push({
+                        record_id: r.id, type: 'credit', name: d.creditor, last_four: d.last_four,
+                        balance: d.current_balance, limit: d.credit_limit, minimum_payment: d.minimum_payment,
+                        apr: d.apr, autopay: d.autopay,
+                    });
+                }
+                for (const r of (loans.data || [])) {
+                    const d = r.data || {};
+                    debts.push({
+                        record_id: r.id, type: 'loan', name: d.lender, loan_type: d.loan_type,
+                        balance: d.current_balance, monthly_payment: d.monthly_payment,
+                        interest_rate: d.interest_rate, autopay: d.autopay,
+                    });
+                }
+
+                const accounts = [];
+                for (const r of (banks.data || [])) {
+                    const d = r.data || {};
+                    accounts.push({
+                        record_id: r.id, type: d.account_type || 'account',
+                        institution: d.institution, last_four: d.last_four,
+                        balance: d.balance, balance_date: d.balance_date,
+                    });
+                }
+
+                const cutoff7 = new Date(today); cutoff7.setDate(cutoff7.getDate() + 7);
+                const upcoming7 = upcomingItems.filter((p) => new Date(p.due_date) <= cutoff7);
+
+                this.financial = {
+                    total_debt: totalDebt,
+                    debt_breakdown: { credit: debtCredit, loan: debtLoan },
+                    total_credit_limit: totalLimit,
+                    credit_utilization_pct: totalLimit ? Math.round((debtCredit / totalLimit) * 1000) / 10 : null,
+                    monthly_obligations: monthlyOblig,
+                    upcoming_payments_7d: upcoming7,
+                    upcoming: upcomingItems,
+                    debts,
+                    accounts,
+                    taxItems: (taxItems.data || []).filter((t) => (t.data?.status || 'pending') !== 'paid'),
+                };
+            } catch (e) {
+                console.warn('loadFinancial failed', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        upcoming7dTotal() {
+            const arr = this.financial?.upcoming_payments_7d || [];
+            const sum = arr.reduce((s, p) => s + (p.amount || 0), 0);
+            return arr.length ? '$' + Math.round(sum).toLocaleString() : '';
         },
 
         trendArrow(t) {
