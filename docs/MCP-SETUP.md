@@ -54,8 +54,11 @@ From the LAN machine running OpenClaw:
 curl http://<lifeos-host>:8200/health
 # → {"status":"ok","lifeos_api":"http://api:8000","auth_configured":true}
 
-# Try an authenticated tool call (MCP discovery)
-curl -X POST http://<lifeos-host>:8200/mcp/ \
+# Try an authenticated tool call (MCP discovery).
+# IMPORTANT: use /mcp (no trailing slash) — Starlette redirects
+# /mcp/ → /mcp and most HTTP clients drop the auth header on
+# 307 redirects for security.
+curl -X POST http://<lifeos-host>:8200/mcp \
   -H "Authorization: Bearer $MCP_AGENT_KEY" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
@@ -73,13 +76,15 @@ token. Configuration looks roughly like:
 mcp_servers:
   lifeos:
     transport: streamable_http
-    url: http://lifeos.local:8200/mcp/
+    url: http://lifeos.local:8200/mcp   # no trailing slash!
     headers:
       Authorization: Bearer ${MCP_AGENT_KEY}
 ```
 
 (Replace `lifeos.local` with the host's mDNS name or LAN IP. The MCP
-service listens on `0.0.0.0:8200`.)
+service listens on `0.0.0.0:8200`. `/mcp/` with a trailing slash 307s
+to `/mcp` and most HTTP clients drop the Authorization header on the
+redirect — always use the canonical no-slash form.)
 
 ---
 
