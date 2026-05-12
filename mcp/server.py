@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -34,6 +35,16 @@ LIFEOS_API_URL = os.environ.get("LIFEOS_API_URL", "http://api:8000")
 MCP_AGENT_KEY = os.environ.get("MCP_AGENT_KEY", "")
 MCP_PORT = int(os.environ.get("MCP_PORT", "8200"))
 MCP_HOST = os.environ.get("MCP_HOST", "0.0.0.0")
+
+# DNS-rebinding protection: the MCP SDK rejects any Host header it doesn't
+# trust (returns 421). The default allowlist is localhost-only, which kills
+# LAN access. For a self-hosted personal service guarded by MCP_AGENT_KEY,
+# the key IS the security boundary; turn the host check off by default.
+# Set MCP_ALLOWED_HOSTS=lifeos.local,10.0.0.92 (comma-separated) to re-enable
+# the check with an explicit allowlist.
+_allowed_hosts_raw = os.environ.get("MCP_ALLOWED_HOSTS", "")
+MCP_ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_raw.split(",") if h.strip()]
+MCP_ENFORCE_HOST_CHECK = bool(MCP_ALLOWED_HOSTS)
 
 if not MCP_AGENT_KEY:
     logger.warning(
@@ -75,6 +86,11 @@ mcp = FastMCP(
         "upload new files, surface upcoming/overdue actions, and read domain "
         "summaries. Action items with due_date are mirrored to Google Calendar "
         "automatically — you don't need to create calendar events yourself."
+    ),
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=MCP_ENFORCE_HOST_CHECK,
+        allowed_hosts=MCP_ALLOWED_HOSTS,
+        allowed_origins=[],  # we don't gate on Origin; auth key is the gate
     ),
 )
 
@@ -453,4 +469,8 @@ if __name__ == "__main__":
     logger.info(f"LifeOS MCP server starting on {MCP_HOST}:{MCP_PORT}")
     logger.info(f"  LifeOS API: {LIFEOS_API_URL}")
     logger.info(f"  Auth: {'enabled' if MCP_AGENT_KEY else 'DISABLED (rejecting all requests)'}")
+    if MCP_ENFORCE_HOST_CHECK:
+        logger.info(f"  Host check: enabled, allowed hosts: {', '.join(MCP_ALLOWED_HOSTS)}")
+    else:
+        logger.info("  Host check: disabled (LAN trust mode; agent key is the gate)")
     uvicorn.run(app, host=MCP_HOST, port=MCP_PORT, log_level="info")

@@ -109,6 +109,10 @@ services:
       MCP_AGENT_KEY: ${MCP_AGENT_KEY:-}
       MCP_PORT: 8200
       MCP_HOST: 0.0.0.0
+      # DNS-rebinding host check: empty = off (LAN trust mode, agent key is the
+      # security boundary). Set to "lifeos.local,10.0.0.92" to lock down to a
+      # specific allowlist.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
     ports:
       - "8200:8200"
 
