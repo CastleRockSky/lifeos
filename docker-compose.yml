@@ -91,6 +91,27 @@ services:
           memory: 8G
           cpus: "3"
 
+  # ── MCP Server (Phase: OpenClaw integration) ─────────────────────────
+  # Exposes LifeOS over the Model Context Protocol so Claude-based agents
+  # (OpenClaw, Claude Desktop) can ask questions, upload docs, and surface
+  # upcoming actions. Auth via MCP_AGENT_KEY shared between this server and
+  # the agent. Bind to 0.0.0.0 so other machines on the LAN can reach it.
+  mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    container_name: lifeos-mcp
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      LIFEOS_API_URL: http://api:8000
+      MCP_AGENT_KEY: ${MCP_AGENT_KEY:-}
+      MCP_PORT: 8200
+      MCP_HOST: 0.0.0.0
+    ports:
+      - "8200:8200"
+
   # ── Nginx (Web UI + Reverse Proxy) ────────────────────────────────────
   nginx:
     image: nginx:alpine
