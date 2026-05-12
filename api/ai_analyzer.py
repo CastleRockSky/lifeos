@@ -21,7 +21,7 @@ from constants import DOMAINS, CATEGORIES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_PROMPT_VERSION = 7
+CURRENT_PROMPT_VERSION = 8
 
 ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. Analyze the document and return structured JSON.
 
@@ -50,6 +50,7 @@ ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. A
 For certain document types, extract numeric measurements into the `metrics` array:
 - **medical** (lab_result, test_result): Extract lab values — glucose, total_cholesterol, LDL, HDL, HbA1c, triglycerides, blood_pressure, weight, BMI, TSH, vitamin_d, creatinine, etc. Use the test/service date as `recorded_at`.
 - **financial** (credit_card_statement, bank_statement, investment_statement): Extract balances and utilization as metrics: `credit_card_balance`, `bank_account_balance`, `investment_balance`, `net_worth`, `total_credit_utilization` (percent). Use the statement date as `recorded_at`. For credit_card_statement specifically, extract one `credit_card_balance` per card.
+- **tax** (W2, 1099, tax_return): Extract income totals and tax payments as metrics: `wages`, `federal_tax_withheld`, `state_tax_withheld`, `tax_paid`, `tax_refund`. Use the tax_year start (Jan 1) as `recorded_at` if no document_date, otherwise use the document_date.
 - **vet** (vet_visit_note, lab_result, weight check): Extract `pet_weight` (lbs), `pet_temperature` (°F), `pet_body_condition_score` (1-9). Use the visit date as `recorded_at`.
 - **auto** (service_record, inspection): Extract mileage readings as metric_type "mileage".
 - Each metric object: `{"metric_type": "glucose", "value": 102, "value_text": null, "recorded_at": "2024-03-15"}`
@@ -90,8 +91,11 @@ Supported record_type values and their data shapes:
 - **recurring_expense** (from utility bills, subscription receipts, insurance policy bills):
   `{"name": "Comcast Internet", "amount": 89.99, "frequency": "monthly", "due_day": 22, "category": "utilities", "autopay": true, "account": "Chase Checking *4567", "notes": null}`
 
-- **tax_item** (from IRS notices, estimated-tax voucher reminders, tax filing confirmations):
-  `{"tax_year": 2025, "item_type": "deadline", "description": "Q1 Estimated Tax Payment", "due_date": "2025-04-15", "amount": 2500, "status": "pending", "notes": "Federal + Colorado state"}`
+- **tax_item** (from IRS notices, estimated-tax voucher reminders, tax filing confirmations, refund notices — these belong in the **tax** domain, not financial):
+  `{"tax_year": 2025, "item_type": "deadline", "description": "Q1 Estimated Tax Payment", "due_date": "2025-04-15", "amount": 2500, "status": "pending", "jurisdiction": "federal", "confirmation_number": null, "notes": "Federal + Colorado state"}`
+  item_type values: deadline, payment, document, refund, return
+  status values: pending, paid, filed, refunded
+  jurisdiction examples: federal, CO, IRS
 
 - **vehicle** (from registrations, titles, purchase agreements, insurance cards):
   `{"year": 2023, "make": "Toyota", "model": "Tacoma", "trim": "TRD Off-Road", "vin": "JTXXX...", "license_plate": "ABC-1234", "color": "Lunar Rock", "purchase_date": "2023-06-15", "purchase_price": 42000, "current_mileage": 28500, "registration_expiration": "2025-12-31", "notes": null}`

@@ -115,6 +115,7 @@ async def create_record(payload: RecordCreate, request: Request):
             "maintenance_schedule", "vehicle",
             "pet_vaccination", "preventative_schedule", "pet_medication",
             "insurance_policy", "identity_document",
+            "tax_item",
         ):
             from recurrences import ensure_recurring_action_item
             await ensure_recurring_action_item(

@@ -2,7 +2,7 @@
 constants.py — Domain and category definitions.
 """
 
-DOMAINS = ["medical", "financial", "auto", "home", "vet", "legal", "insurance"]
+DOMAINS = ["medical", "financial", "tax", "auto", "home", "vet", "legal", "insurance"]
 
 CATEGORIES = {
     "medical": [
@@ -12,9 +12,15 @@ CATEGORIES = {
         "medical_bill", "prior_authorization", "health_summary", "advance_directive",
     ],
     "financial": [
-        "tax_return", "w2", "1099", "bank_statement", "credit_card_statement",
+        "bank_statement", "credit_card_statement",
         "loan_agreement", "mortgage_statement", "investment_statement", "receipt",
-        "invoice", "pay_stub", "financial_plan", "budget", "credit_report", "tax_estimate",
+        "invoice", "pay_stub", "financial_plan", "budget", "credit_report",
+    ],
+    "tax": [
+        "tax_return", "w2",
+        "1099", "1099_int", "1099_div", "1099_b", "1099_nec", "1099_misc", "1099_r",
+        "k1", "tax_estimate", "tax_payment", "tax_correspondence",
+        "donation_receipt", "property_tax_bill", "mileage_log", "tax_planning",
     ],
     "auto": [
         "registration", "title", "insurance_card", "service_receipt", "recall_notice",

@@ -468,6 +468,9 @@
             <button class="nav-item" :class="{ active: view === 'financial' }" @click="navigate('financial')">
                 Financial
             </button>
+            <button class="nav-item" :class="{ active: view === 'tax' }" @click="navigate('tax')">
+                Tax
+            </button>
             <button class="nav-item" :class="{ active: view === 'auto' }" @click="navigate('auto')">
                 Auto
             </button>
@@ -1545,6 +1548,164 @@
             </div>
         </template>
 
+        <!-- Tax Dashboard -->
+        <template x-if="view === 'tax'">
+            <div>
+                <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                    <h2>Tax</h2>
+                    <select x-model.number="tax.year" @change="loadTax()"
+                            style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                        <template x-for="y in tax.yearOptions" :key="y">
+                            <option :value="y" x-text="'TY ' + y"></option>
+                        </template>
+                    </select>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Income docs</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="(tax?.income || []).length"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Deductions</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="(tax?.deductions || []).length"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Payments / estimates</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="(tax?.payments || []).length"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="tax?.totalPaid != null ? '$' + Math.round(tax.totalPaid).toLocaleString() + ' paid' : ''"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Upcoming actions</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             :style="(tax?.upcoming || []).length > 0 ? 'color:var(--warning);' : ''"
+                             x-text="(tax?.upcoming || []).length"></div>
+                    </div>
+                </div>
+
+                <!-- Upcoming tax deadlines -->
+                <div style="margin-top:1.5rem;" x-show="(tax?.upcoming || []).length > 0">
+                    <div class="page-header"><h2>Upcoming deadlines</h2></div>
+                    <template x-for="a in (tax?.upcoming || [])" :key="a.id">
+                        <div class="action-item" :class="{ overdue: a.due_date && new Date(a.due_date) < new Date() }">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="a.title"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="a.due_date" x-text="formatDate(a.due_date)"></span>
+                                    <span x-show="a.description" style="color:var(--text-muted);"
+                                          x-text="' · ' + a.description"></span>
+                                    <span class="badge" x-text="a.priority"></span>
+                                </div>
+                            </div>
+                            <div class="action-item-actions">
+                                <button class="btn btn-xs btn-success" @click="updateAction(a.id, 'completed')">Done</button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Tax returns -->
+                <div style="margin-top:1.5rem;" x-show="(tax?.returns || []).length > 0">
+                    <div class="page-header"><h2>Returns</h2></div>
+                    <template x-for="d in (tax?.returns || [])" :key="d.id">
+                        <div class="action-item" @click="viewDocument(d.id)">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="d.title"></div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="d.category?.replace(/_/g, ' ')"></span>
+                                    <span x-show="d.document_date" x-text="' · ' + d.document_date"></span>
+                                    <span x-show="d.ai_summary" style="color:var(--text-muted);"
+                                          x-text="' · ' + d.ai_summary.slice(0, 100)"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Income documents -->
+                <div style="margin-top:1.5rem;">
+                    <div class="page-header"><h2>Income (W2s, 1099s, K1s)</h2></div>
+                    <template x-if="(tax?.income || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">
+                                No income documents on file for tax year <span x-text="tax?.year"></span>.
+                            </p>
+                        </div>
+                    </template>
+                    <template x-for="d in (tax?.income || [])" :key="d.id">
+                        <div class="action-item" @click="viewDocument(d.id)">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="d.title"></div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="d.category?.replace(/_/g, ' ')"></span>
+                                    <span x-show="d.document_date" x-text="' · ' + d.document_date"></span>
+                                    <span x-show="d.ai_summary" style="color:var(--text-muted);"
+                                          x-text="' · ' + d.ai_summary.slice(0, 80)"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Tax payments + estimates -->
+                <div style="margin-top:1.5rem;" x-show="(tax?.payments || []).length > 0">
+                    <div class="page-header"><h2>Payments &amp; estimates</h2></div>
+                    <template x-for="t in (tax?.payments || [])" :key="t.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="t.data?.description || (t.data?.item_type || 'Tax item')"></div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="t.data?.item_type || ''"></span>
+                                    <span x-show="t.data?.due_date" x-text="' · due ' + t.data.due_date"></span>
+                                    <span x-show="t.data?.amount != null" x-text="' · $' + Number(t.data.amount).toLocaleString()"></span>
+                                    <span x-show="t.data?.jurisdiction" x-text="' · ' + t.data.jurisdiction"></span>
+                                    <span class="badge" x-text="t.data?.status || 'pending'"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Deductions -->
+                <div style="margin-top:1.5rem;" x-show="(tax?.deductions || []).length > 0">
+                    <div class="page-header"><h2>Deductions</h2></div>
+                    <template x-for="d in (tax?.deductions || [])" :key="d.id">
+                        <div class="action-item" @click="viewDocument(d.id)">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="d.title"></div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="d.category?.replace(/_/g, ' ')"></span>
+                                    <span x-show="d.document_date" x-text="' · ' + d.document_date"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Other tax docs -->
+                <div style="margin-top:1.5rem;" x-show="(tax?.other || []).length > 0">
+                    <div class="page-header"><h2>Other tax documents</h2></div>
+                    <template x-for="d in (tax?.other || [])" :key="d.id">
+                        <div class="action-item" @click="viewDocument(d.id)">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="d.title"></div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="d.category?.replace(/_/g, ' ')"></span>
+                                    <span x-show="d.document_date" x-text="' · ' + d.document_date"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
         <!-- Insurance Dashboard -->
         <template x-if="view === 'insurance'">
             <div>
@@ -2199,6 +2360,15 @@ function lifeos() {
         insurance: null,
         legal: null,
 
+        // Tax dashboard
+        tax: {
+            year: new Date().getFullYear(),
+            yearOptions: [],
+            income: [], deductions: [], payments: [], returns: [], other: [],
+            upcoming: [],
+            totalPaid: null,
+        },
+
         // Trends (Phase 9)
         trends: {
             subjectId: '',
@@ -2282,6 +2452,7 @@ function lifeos() {
             if (v === 'trends') this.initTrendsView();
             if (v === 'insurance') this.loadInsurance();
             if (v === 'legal') this.loadLegal();
+            if (v === 'tax') this.loadTax();
         },
 
         async api(url, opts = {}) {
@@ -2643,6 +2814,64 @@ function lifeos() {
                 ((c.data?.trade || '') + ' ' + (c.data?.name || '') + ' ' + (c.data?.notes || ''))
                     .toLowerCase().includes(q)
             );
+        },
+
+        async loadTax() {
+            this.loading = true;
+            try {
+                // Year options: current + previous 4 + next 1
+                const cy = new Date().getFullYear();
+                this.tax.yearOptions = [cy + 1, cy, cy - 1, cy - 2, cy - 3, cy - 4];
+                if (!this.tax.year) this.tax.year = cy;
+                const year = this.tax.year;
+
+                const [docs, taxItems, actions] = await Promise.all([
+                    fetch('/api/documents?domain=tax&per_page=200').then((r) => r.json()),
+                    fetch('/api/records?record_type=tax_item&per_page=200').then((r) => r.json()),
+                    fetch('/api/actions?domain=tax&status=pending&per_page=50').then((r) => r.json()),
+                ]);
+
+                const incomeCats = new Set([
+                    'w2', '1099', '1099_int', '1099_div', '1099_b', '1099_nec',
+                    '1099_misc', '1099_r', 'k1',
+                ]);
+                const deductionCats = new Set([
+                    'donation_receipt', 'mileage_log', 'property_tax_bill',
+                ]);
+                const returnCats = new Set(['tax_return']);
+
+                const inferYear = (d) => {
+                    // Prefer document_date year; fall back to ingested year
+                    if (d.document_date) return new Date(d.document_date).getFullYear();
+                    if (d.ingested_at) return new Date(d.ingested_at).getFullYear();
+                    return null;
+                };
+
+                const allDocs = (docs.data || []);
+                const yearDocs = allDocs.filter((d) => inferYear(d) === year);
+
+                this.tax.income = yearDocs.filter((d) => incomeCats.has(d.category));
+                this.tax.deductions = yearDocs.filter((d) => deductionCats.has(d.category));
+                this.tax.returns = yearDocs.filter((d) => returnCats.has(d.category));
+                this.tax.other = yearDocs.filter((d) =>
+                    !incomeCats.has(d.category) &&
+                    !deductionCats.has(d.category) &&
+                    !returnCats.has(d.category)
+                );
+
+                this.tax.payments = (taxItems.data || []).filter((t) =>
+                    !t.data?.tax_year || Number(t.data.tax_year) === year
+                );
+                this.tax.totalPaid = this.tax.payments
+                    .filter((t) => (t.data?.status || '').toLowerCase() === 'paid')
+                    .reduce((s, t) => s + (Number(t.data?.amount) || 0), 0) || null;
+
+                this.tax.upcoming = actions.data || [];
+            } catch (e) {
+                console.warn('loadTax failed', e);
+            } finally {
+                this.loading = false;
+            }
         },
 
         async loadInsurance() {

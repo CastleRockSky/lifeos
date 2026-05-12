@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import medical, financial, auto, home, pet, insurance, legal
+from . import medical, financial, tax, auto, home, pet, insurance, legal
 
 
 # record_type → Pydantic model
@@ -26,7 +26,8 @@ _REGISTRY: dict[str, Any] = {
     "credit_account": financial.CreditAccount,
     "loan": financial.Loan,
     "recurring_expense": financial.RecurringExpense,
-    "tax_item": financial.TaxItem,
+    # Tax
+    "tax_item": tax.TaxItem,
     # Auto
     "vehicle": auto.Vehicle,
     "maintenance_schedule": auto.MaintenanceSchedule,

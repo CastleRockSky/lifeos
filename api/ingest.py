@@ -31,7 +31,7 @@ _DOMAIN_TO_SUBJECT_TYPE = {
     "home": "property",
 }
 
-_PRIMARY_FALLBACK_DOMAINS = {"medical", "financial", "legal", "insurance"}
+_PRIMARY_FALLBACK_DOMAINS = {"medical", "financial", "tax", "legal", "insurance"}
 
 
 async def _resolve_subject(pool, subject_hint: str | None, domain: str | None):
@@ -287,6 +287,7 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                         "maintenance_schedule", "vehicle",
                         "pet_vaccination", "preventative_schedule", "pet_medication",
                         "insurance_policy", "identity_document",
+                        "tax_item",
                     ):
                         try:
                             from recurrences import ensure_recurring_action_item

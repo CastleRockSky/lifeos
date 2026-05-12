@@ -72,11 +72,6 @@ class RecurringExpense(_Base):
     notes: Optional[str] = None
 
 
-class TaxItem(_Base):
-    tax_year: Optional[int] = None
-    item_type: Optional[str] = None           # deadline, payment, document, refund
-    description: Optional[str] = None
-    due_date: Optional[date] = None
-    amount: Optional[float] = None
-    status: Optional[str] = Field(default="pending")  # pending, paid, filed, refunded
-    notes: Optional[str] = None
+# TaxItem moved to schemas/tax.py — see _REGISTRY in schemas/__init__.py.
+# Existing structured_records rows continue to validate against the new
+# location because the registry maps record_type → model class at runtime.

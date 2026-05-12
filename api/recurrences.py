@@ -149,6 +149,20 @@ def _next_due_for(record_type: str, data: dict) -> Optional[date]:
             return exp
         return None
 
+    if record_type == "tax_item":
+        # Skip already-resolved items (paid, filed, refunded).
+        status = (data.get("status") or "pending").lower()
+        if status not in ("pending",):
+            return None
+        d = _parse_date(data.get("due_date"))
+        if not d:
+            return None
+        # Surface 30 days before deadline (tax deadlines are mostly known well
+        # in advance — earlier than that is just nag).
+        if today >= d - timedelta(days=30):
+            return d
+        return None
+
     return None
 
 
@@ -178,6 +192,10 @@ def _action_title_for(record_type: str, data: dict, amount: Optional[float]) -> 
         return f"Renew {data.get('policy_type') or 'insurance'}: {data.get('carrier') or ''}".strip()
     if record_type == "identity_document":
         return f"Renew {data.get('document_type') or 'document'}"
+    if record_type == "tax_item":
+        desc = data.get("description") or "tax item"
+        year = data.get("tax_year")
+        return f"Tax: {desc}" + (f" (TY {year})" if year else "")
     return data.get("name") or "Action"
 
 
@@ -194,6 +212,7 @@ _DOMAIN_FOR_RECORD_TYPE = {
     "pet_medication": "vet",
     "insurance_policy": "insurance",
     "identity_document": "legal",
+    "tax_item": "tax",
 }
 
 
