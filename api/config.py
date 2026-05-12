@@ -63,6 +63,18 @@ class Settings(BaseSettings):
     google_calendar_event_prefix: str = "[LifeOS] "
     google_calendar_link_base: str = ""  # e.g. https://lifeos.example.com
 
+    # Hardening (Phase 12)
+    max_upload_bytes: int = 100 * 1024 * 1024  # 100 MB
+    allowed_upload_mime: str = (
+        "application/pdf,image/jpeg,image/png,image/tiff,image/heic,image/webp,"
+        "image/gif,image/bmp,text/plain,text/csv,application/json,"
+        "application/msword,"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
+        "application/vnd.ms-excel,"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    qa_rate_limit_per_minute: int = 10  # per-user; 0 disables
+
     class Config:
         env_file = ".env"
 

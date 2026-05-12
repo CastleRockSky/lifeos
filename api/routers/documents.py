@@ -38,6 +38,9 @@ async def upload_document(
 ):
     user_email = get_user_email(request)
 
+    from config import get_settings as _get_settings
+    settings = _get_settings()
+
     if domain and domain not in DOMAINS:
         raise HTTPException(400, f"Invalid domain: {domain}")
     if category and category not in ALL_CATEGORIES:
@@ -49,6 +52,17 @@ async def upload_document(
     ext = Path(file.filename).suffix.lower() if file.filename else ""
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         content = await file.read()
+        if len(content) > settings.max_upload_bytes:
+            os.unlink(tmp.name)
+            raise HTTPException(
+                413,
+                f"File exceeds maximum size ({settings.max_upload_bytes // (1024*1024)} MB)",
+            )
+        # MIME allowlist (best-effort: rely on server-side magic check too)
+        allowed = {m.strip() for m in settings.allowed_upload_mime.split(",") if m.strip()}
+        if file.content_type and allowed and file.content_type not in allowed:
+            os.unlink(tmp.name)
+            raise HTTPException(415, f"Unsupported file type: {file.content_type}")
         tmp.write(content)
         tmp_path = tmp.name
 

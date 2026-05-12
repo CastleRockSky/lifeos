@@ -6,12 +6,13 @@ import uuid
 import logging
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 
 from config import get_settings
 from database import get_pool
-from helpers import audit_log
+from helpers import audit_log, get_user_email
 from models import AskRequest
+from rate_limit import take as rate_limit_take
 from search import hybrid_search, fulltext_search, semantic_search
 
 logger = logging.getLogger(__name__)
@@ -67,13 +68,21 @@ async def search_text_only(
 
 
 @router.post("/ask")
-async def ask_question(body: AskRequest):
+async def ask_question(body: AskRequest, request: Request):
     """RAG-powered Q&A: embed question, search for context, call Claude."""
     settings = get_settings()
     pool = get_pool()
 
     if not settings.anthropic_api_key:
         raise HTTPException(503, "AI not configured")
+
+    # Per-user rate limit to prevent runaway Claude API costs.
+    user_key = get_user_email(request) or "anon"
+    if not rate_limit_take(f"ask:{user_key}", settings.qa_rate_limit_per_minute):
+        raise HTTPException(
+            429,
+            f"Rate limit exceeded ({settings.qa_rate_limit_per_minute}/min). Try again shortly.",
+        )
 
     # Get relevant chunks via semantic search
     chunks = semantic_search(

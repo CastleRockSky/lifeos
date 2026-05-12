@@ -64,9 +64,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LifeOS API", version="0.2.0", lifespan=lifespan)
 
+_origins_raw = (get_settings().allowed_origins or "*").strip()
+_allowed_origins = (
+    ["*"] if _origins_raw == "*" else [o.strip() for o in _origins_raw.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
