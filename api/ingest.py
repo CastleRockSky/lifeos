@@ -5,6 +5,7 @@ Used by both the upload endpoint and the inbox watcher.
 """
 
 import asyncio
+import json
 import os
 import uuid
 import logging
@@ -225,6 +226,88 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                         uuid.UUID(doc_id),
                         item.get("priority", "medium"),
                     )
+
+            # ── Structured records insertion ──────────────────────────
+            # AI-extracted records get inserted with this document as the source.
+            # For records where we can identify an "identity field" (medication.name,
+            # provider.name, condition.name) we upsert against an existing row for
+            # the same subject so re-uploading a refill doesn't duplicate the med.
+            if result.structured_records:
+                from datetime import date as _date
+                for sr in result.structured_records:
+                    rtype = sr["record_type"]
+                    data = sr["data"] or {}
+                    identity_key = None
+                    if rtype in ("medication", "provider", "condition"):
+                        identity_key = (data.get("name") or "").strip().lower() or None
+
+                    record_id = None
+                    if identity_key and resolved_subject_id:
+                        existing = await conn.fetchrow("""
+                            SELECT id, data FROM structured_records
+                            WHERE record_type = $1
+                              AND subject_id = $2
+                              AND deleted_at IS NULL
+                              AND LOWER(COALESCE(data->>'name', '')) = $3
+                            ORDER BY updated_at DESC
+                            LIMIT 1
+                        """, rtype, resolved_subject_id, identity_key)
+                        if existing:
+                            merged = dict(existing["data"]) if isinstance(existing["data"], dict) else {}
+                            merged.update({k: v for k, v in data.items() if v is not None})
+                            await conn.execute("""
+                                UPDATE structured_records
+                                SET data = $1::jsonb,
+                                    source_document_id = $2,
+                                    domain = COALESCE(domain, $3)
+                                WHERE id = $4
+                            """, json.dumps(merged, default=str),
+                                uuid.UUID(doc_id), apply_domain, existing["id"])
+                            record_id = existing["id"]
+
+                    if record_id is None:
+                        new_row = await conn.fetchrow("""
+                            INSERT INTO structured_records
+                                (record_type, domain, subject_id, data, source_document_id)
+                            VALUES ($1, $2, $3, $4::jsonb, $5)
+                            RETURNING id
+                        """, rtype, apply_domain, resolved_subject_id,
+                            json.dumps(data, default=str), uuid.UUID(doc_id))
+                        record_id = new_row["id"]
+
+                    # Refill action item for medications.
+                    if rtype == "medication":
+                        refill = data.get("refill_date")
+                        if isinstance(refill, str) and refill:
+                            try:
+                                refill_dt = _date.fromisoformat(refill)
+                            except ValueError:
+                                refill_dt = None
+                        else:
+                            refill_dt = None
+                        if refill_dt:
+                            med_name = data.get("name") or "medication"
+                            # Avoid stacking duplicate refill action items for the
+                            # same refill date.
+                            await conn.execute("""
+                                INSERT INTO action_items
+                                    (domain, subject_id, title, description, due_date,
+                                     source_type, source_document_id, source_record_id, priority)
+                                SELECT 'medical', $1, $2, $3, $4, 'ai_extracted', $5, $6, 'medium'
+                                WHERE NOT EXISTS (
+                                    SELECT 1 FROM action_items
+                                    WHERE source_record_id = $6
+                                      AND due_date = $4
+                                      AND deleted_at IS NULL
+                                )
+                            """,
+                                resolved_subject_id,
+                                f"Refill {med_name}",
+                                f"Refill due based on {row['title']}",
+                                refill_dt,
+                                uuid.UUID(doc_id),
+                                record_id,
+                            )
 
             # ── Time-series metrics insertion ─────────────────────────
             if result.metrics and resolved_subject_id:

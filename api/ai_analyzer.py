@@ -21,7 +21,7 @@ from constants import DOMAINS, CATEGORIES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_PROMPT_VERSION = 2
+CURRENT_PROMPT_VERSION = 3
 
 ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. Analyze the document and return structured JSON.
 
@@ -55,6 +55,33 @@ For certain document types, extract numeric measurements into the `metrics` arra
 - `recorded_at` should be the test/service date in ISO YYYY-MM-DD format, or null if unknown.
 - metric_type should be lowercase_snake_case (e.g. "total_cholesterol", "blood_pressure", "hba1c").
 
+## Structured Records Extraction
+
+For documents that describe ongoing entities (medications, providers, conditions, vaccinations, lab panels), populate the `structured_records` array. These create reusable records the user can query later — they're not the same as one-off action items or metrics.
+
+Supported record_type values and their data shapes:
+
+- **medication** (from prescriptions, refill receipts, med lists):
+  `{"name": "Lisinopril", "dose": "10mg", "frequency": "1x daily", "time_of_day": "morning", "prescriber": "Dr. Sarah Chen", "pharmacy": "King Soopers", "rx_number": "RX-7891234", "start_date": "2024-01-15", "refill_date": "2025-04-01", "quantity": 90, "refills_remaining": 3, "indication": "Hypertension", "status": "active", "notes": null}`
+
+- **provider** (from referrals, visit notes that introduce a new provider):
+  `{"name": "Dr. Sarah Chen", "specialty": "Internal Medicine", "practice": "Castle Rock Medical Group", "phone": "303-555-0100", "portal_url": "https://...", "address": "...", "next_appointment": "2025-06-15", "notes": null}`
+
+- **condition** (from diagnosis notes, problem lists):
+  `{"name": "Essential Hypertension", "icd10": "I10", "diagnosed_date": "2024-01-15", "diagnosing_provider": "Dr. Sarah Chen", "status": "active", "management": "Medication + lifestyle", "notes": null}`
+
+- **vaccination** (from immunization records):
+  `{"name": "Influenza", "date_administered": "2024-10-15", "provider": "Walgreens", "lot_number": "FL2024-789", "next_due": "2025-10-01", "series": null, "dose_number": null}`
+
+- **lab_result_set** (from lab reports — pair this with the `metrics` array, which holds the same numeric values for trending):
+  `{"lab": "Quest Diagnostics", "ordering_provider": "Dr. Sarah Chen", "date": "2025-03-15", "results": [{"test": "Total Cholesterol", "value": 210, "unit": "mg/dL", "reference_range": "< 200", "flag": "high"}]}`
+
+Rules:
+- Only extract records whose subject is genuinely the document's subject (skip records about other people mentioned in passing).
+- Use null for unknown fields, but include the field key. Do NOT invent details.
+- Dates must be ISO YYYY-MM-DD or null.
+- For lab_result_set, every numeric result should ALSO appear in the `metrics` array using a snake_case metric_type.
+
 ## Subject Matching
 
 Determine who or what this document is about and set `subject_hint`:
@@ -84,6 +111,9 @@ Return ONLY valid JSON (no markdown, no explanation):
   "action_items": [
     {"title": "Schedule follow-up", "description": "...", "due_date": "2024-06-15", "priority": "medium"}
   ],
+  "structured_records": [
+    {"record_type": "lab_result_set", "data": {"lab": "Quest Diagnostics", "date": "2024-03-15", "results": [{"test": "Glucose", "value": 102, "unit": "mg/dL", "reference_range": "70-99", "flag": "high"}]}}
+  ],
   "extracted_data": {"provider_name": "Dr. Smith", "facility": "Castle Rock Medical Center"}
 }
 
@@ -95,6 +125,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 - Do not invent information not present in the document
 - priority must be one of: low, medium, high
 - metrics array can be empty if no measurable values found
+- structured_records array can be empty if no reusable entities are described
 - subject_hint should be null if the subject cannot be determined"""
 
 
@@ -112,6 +143,7 @@ class AnalysisResult(BaseModel):
     extracted_data: Optional[dict] = None
     subject_hint: Optional[str] = None
     metrics: list[dict] = []
+    structured_records: list[dict] = []
     prompt_version: int = CURRENT_PROMPT_VERSION
 
 
@@ -250,6 +282,25 @@ async def analyze_document(
                 "recorded_at": recorded_at,
             })
 
+        # Validate structured records
+        from schemas import known_record_types, validate_record
+        from pydantic import ValidationError as _VE
+        valid_types = set(known_record_types())
+        structured = []
+        for sr in result.get("structured_records", []):
+            if not isinstance(sr, dict):
+                continue
+            rtype = str(sr.get("record_type", "")).strip().lower()
+            data = sr.get("data")
+            if rtype not in valid_types or not isinstance(data, dict):
+                continue
+            try:
+                cleaned = validate_record(rtype, data)
+            except _VE:
+                # AI emitted something the schema rejects — skip rather than poison the row.
+                continue
+            structured.append({"record_type": rtype, "data": cleaned})
+
         # Title
         ai_title = result.get("title")
         if ai_title:
@@ -269,6 +320,7 @@ async def analyze_document(
             extracted_data=result.get("extracted_data"),
             subject_hint=subject_hint,
             metrics=metrics,
+            structured_records=structured,
             prompt_version=CURRENT_PROMPT_VERSION,
         )
 

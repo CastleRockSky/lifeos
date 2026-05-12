@@ -164,6 +164,20 @@ ALTER TABLE documents
     ADD CONSTRAINT documents_email_message_id_fkey
     FOREIGN KEY (email_message_id) REFERENCES email_messages(id) ON DELETE SET NULL;
 
+-- ── Medication Doses (Phase 5) ───────────────────────────────────────────
+-- Adherence log: one row per scheduled dose event (taken / missed / late).
+CREATE TABLE medication_doses (
+    id BIGSERIAL PRIMARY KEY,
+    medication_record_id UUID NOT NULL REFERENCES structured_records(id) ON DELETE CASCADE,
+    subject_id UUID REFERENCES subjects(id),
+    scheduled_at TIMESTAMPTZ,                -- when the dose was due (optional)
+    recorded_at TIMESTAMPTZ NOT NULL,        -- when the user/agent reported it
+    status VARCHAR(20) NOT NULL,             -- taken, missed, late, skipped
+    notes TEXT,
+    source VARCHAR(50) DEFAULT 'agent_api',  -- agent_api, manual
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ── Email Sender Map (Phase 3) ───────────────────────────────────────────
 -- Builds up over time: known senders → domain/category/subject pre-classifier.
 CREATE TABLE email_sender_map (
@@ -248,6 +262,10 @@ CREATE INDEX idx_documents_email_message ON documents(email_message_id) WHERE em
 
 -- Email Sender Map
 CREATE INDEX idx_email_sender_map_pattern ON email_sender_map(sender_pattern);
+
+-- Medication Doses
+CREATE INDEX idx_med_doses_record ON medication_doses(medication_record_id, recorded_at DESC);
+CREATE INDEX idx_med_doses_subject ON medication_doses(subject_id, recorded_at DESC);
 
 -- ── Updated_at Trigger ──────────────────────────────────────────────────
 

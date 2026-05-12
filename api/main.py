@@ -17,7 +17,10 @@ from config import get_settings
 from database import init_pool, close_pool
 from search import ensure_collection
 
-from routers import system, subjects, documents, search, actions, email
+from routers import (
+    system, subjects, documents, search, actions, email, records, metrics,
+    agent_health,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -76,3 +79,6 @@ app.include_router(documents.router)
 app.include_router(search.router)
 app.include_router(actions.router)
 app.include_router(email.router)
+app.include_router(records.router)
+app.include_router(metrics.router)
+app.include_router(agent_health.router)

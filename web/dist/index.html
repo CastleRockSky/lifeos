@@ -445,6 +445,9 @@
                 Review Queue
                 <span class="count-alert" x-show="stats?.needs_review > 0" x-text="stats?.needs_review"></span>
             </button>
+            <button class="nav-item" :class="{ active: view === 'medical' }" @click="navigate('medical')">
+                Medical
+            </button>
         </div>
 
         <div class="sidebar-section">
@@ -1019,6 +1022,157 @@
             </div>
         </template>
 
+        <!-- Medical Dashboard -->
+        <template x-if="view === 'medical'">
+            <div>
+                <div class="page-header">
+                    <h2>Medical</h2>
+                    <span style="font-size:0.8rem; color:var(--text-muted);" x-text="medicalSubjectName"></span>
+                </div>
+
+                <!-- Vitals card -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Weight</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="medical?.weight?.value != null ? medical.weight.value.toFixed(1) + ' lbs' : '—'"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="medical?.weightTrend ? trendArrow(medical.weightTrend) : ''"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Blood pressure</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="medical?.bp?.systolic != null ? Math.round(medical.bp.systolic) + '/' + Math.round(medical.bp.diastolic) : '—'"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="medical?.bp?.recorded_at ? formatDate(medical.bp.recorded_at) : ''"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Med adherence (30d)</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="medical?.adherence?.adherence_pct != null ? medical.adherence.adherence_pct + '%' : '—'"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="medical?.adherence ? (medical.adherence.taken + medical.adherence.late) + ' / ' + medical.adherence.total + ' doses' : ''"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">A1C</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="medical?.a1c?.value != null ? medical.a1c.value.toFixed(1) + '%' : '—'"></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);"
+                             x-text="medical?.a1c?.recorded_at ? formatDate(medical.a1c.recorded_at) : ''"></div>
+                    </div>
+                </div>
+
+                <!-- Active medications -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div class="page-header"><h2>Active medications</h2></div>
+                    <template x-if="(medical?.medications || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">No active medications recorded.</p>
+                        </div>
+                    </template>
+                    <template x-for="m in (medical?.medications || [])" :key="m.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="m.data?.name || 'Medication'"></span>
+                                    <span style="color:var(--text-muted); font-weight:normal;"
+                                          x-text="m.data?.dose ? ' · ' + m.data.dose : ''"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span x-show="m.data?.frequency" x-text="m.data?.frequency"></span>
+                                    <span x-show="m.data?.indication" x-text="' · for ' + m.data.indication"></span>
+                                    <span x-show="m.data?.refill_date"
+                                          :class="{ 'badge-priority-high': isRefillSoon(m.data?.refill_date) }"
+                                          x-text="' · refill ' + m.data.refill_date"></span>
+                                    <span x-show="m.data?.refills_remaining != null"
+                                          x-text="' · ' + m.data.refills_remaining + ' refills left'"></span>
+                                </div>
+                            </div>
+                            <div class="action-item-actions">
+                                <a class="btn btn-xs" :href="'/api/documents/' + m.source_document_id + '/file'"
+                                   target="_blank" x-show="m.source_document_id">Source</a>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Providers -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div class="page-header"><h2>Providers</h2></div>
+                    <template x-if="(medical?.providers || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">No providers on file yet.</p>
+                        </div>
+                    </template>
+                    <template x-for="p in (medical?.providers || [])" :key="p.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="p.data?.name || 'Provider'"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="p.data?.specialty" x-text="p.data?.specialty"></span>
+                                    <span x-show="p.data?.practice" x-text="' · ' + p.data.practice"></span>
+                                    <span x-show="p.data?.phone" x-text="' · ' + p.data.phone"></span>
+                                    <span x-show="p.data?.next_appointment"
+                                          x-text="' · next ' + p.data.next_appointment"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Recent labs -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div class="page-header"><h2>Recent labs</h2></div>
+                    <template x-if="(medical?.labs || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">No lab results on file.</p>
+                        </div>
+                    </template>
+                    <template x-for="lab in (medical?.labs || [])" :key="lab.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="(lab.data?.lab || 'Lab') + (lab.data?.date ? ' — ' + lab.data.date : '')"></span>
+                                </div>
+                                <div style="font-size:0.78rem; margin-top:0.4rem; display:grid;
+                                            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:0.3rem 1rem;">
+                                    <template x-for="r in (lab.data?.results || [])" :key="r.test">
+                                        <div :style="(r.flag === 'high' || r.flag === 'low' || (r.flag || '').startsWith('critical')) ? 'color:var(--danger);' : ''">
+                                            <span x-text="r.test"></span>:
+                                            <strong x-text="(r.value != null ? r.value : (r.value_text || '?')) + (r.unit ? ' ' + r.unit : '')"></strong>
+                                            <span style="color:var(--text-muted);" x-show="r.reference_range"
+                                                  x-text="' (' + r.reference_range + ')'"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Upcoming medical actions -->
+                <div style="margin-bottom: 1.5rem;" x-show="(medical?.actions || []).length > 0">
+                    <div class="page-header"><h2>Upcoming health actions</h2></div>
+                    <template x-for="a in (medical?.actions || [])" :key="a.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="a.title"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="a.due_date" x-text="formatDate(a.due_date)"></span>
+                                    <span class="badge" x-text="a.priority"></span>
+                                </div>
+                            </div>
+                            <div class="action-item-actions">
+                                <button class="btn btn-xs btn-success" @click="updateAction(a.id, 'completed')">Done</button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
     </main>
 
     <!-- Upload Modal -->
@@ -1252,6 +1406,10 @@ function lifeos() {
         // Email ingestion (Phase 3)
         emailStatus: null,
 
+        // Medical dashboard (Phase 5)
+        medical: null,
+        medicalSubjectName: '',
+
         // Modals
         showUpload: false,
         showEditDoc: false,
@@ -1311,6 +1469,7 @@ function lifeos() {
             if (v === 'subjects') this.loadSubjects();
             if (v === 'actions') this.loadActions();
             if (v === 'review') this.loadReviewQueue();
+            if (v === 'medical') this.loadMedical();
         },
 
         async api(url, opts = {}) {
@@ -1411,6 +1570,75 @@ function lifeos() {
                 const res = await fetch('/api/email/status');
                 if (res.ok) this.emailStatus = (await res.json()).data;
             } catch {}
+        },
+
+        async loadMedical() {
+            this.loading = true;
+            try {
+                // Find primary subject
+                if (!this.subjects?.length) await this.loadSubjects();
+                const primary = (this.subjects || []).find((s) => s.is_primary) || (this.subjects || [])[0];
+                if (!primary) {
+                    this.medical = null;
+                    this.medicalSubjectName = '';
+                    return;
+                }
+                this.medicalSubjectName = primary.name;
+                const sid = primary.id;
+
+                const params = (obj) => Object.entries(obj)
+                    .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
+                    .join('&');
+
+                const [meds, provs, labs, weightLatest, weightTrend, bpSys, bpDia, a1c, actions] = await Promise.all([
+                    fetch('/api/records?record_type=medication&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=provider&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=lab_result_set&subject_id=' + sid + '&per_page=10').then((r) => r.json()),
+                    fetch('/api/metrics/latest?' + params({ subject_id: sid, metric_type: 'weight' })).then((r) => r.json()),
+                    fetch('/api/metrics/trend?' + params({ subject_id: sid, metric_type: 'weight', period: 'weekly' })).then((r) => r.json()),
+                    fetch('/api/metrics/latest?' + params({ subject_id: sid, metric_type: 'blood_pressure_systolic' })).then((r) => r.json()),
+                    fetch('/api/metrics/latest?' + params({ subject_id: sid, metric_type: 'blood_pressure_diastolic' })).then((r) => r.json()),
+                    fetch('/api/metrics/latest?' + params({ subject_id: sid, metric_type: 'a1c' })).then((r) => r.json()),
+                    fetch('/api/actions?domain=medical&status=pending&per_page=10').then((r) => r.json()),
+                ]);
+
+                // Adherence (still derived later — placeholder until /api/agent/health/adherence
+                // is opened to the user UI; for now we leave it null and just show meds + actions.
+                this.medical = {
+                    medications: (meds.data || []).filter((m) => (m.data?.status || 'active') === 'active'),
+                    providers: provs.data || [],
+                    labs: labs.data || [],
+                    weight: weightLatest.data ? { value: weightLatest.data.value_numeric, recorded_at: weightLatest.data.recorded_at } : null,
+                    weightTrend: weightTrend.data || null,
+                    bp: (bpSys.data && bpDia.data) ? {
+                        systolic: bpSys.data.value_numeric,
+                        diastolic: bpDia.data.value_numeric,
+                        recorded_at: bpSys.data.recorded_at,
+                    } : null,
+                    a1c: a1c.data ? { value: a1c.data.value_numeric, recorded_at: a1c.data.recorded_at } : null,
+                    adherence: null,
+                    actions: actions.data || [],
+                };
+            } catch (e) {
+                console.warn('loadMedical failed', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        trendArrow(t) {
+            if (!t || t.direction === 'unknown' || t.direction === 'no_prior_data') return '';
+            if (t.direction === 'flat') return '→ flat';
+            if (t.direction === 'up') return '↑ ' + (t.change != null ? '+' + t.change : '');
+            if (t.direction === 'down') return '↓ ' + (t.change != null ? t.change : '');
+            return '';
+        },
+
+        isRefillSoon(dateStr) {
+            if (!dateStr) return false;
+            const d = new Date(dateStr);
+            const days = (d - new Date()) / (1000 * 60 * 60 * 24);
+            return days <= 14;
         },
 
         async retryEmail(id) {
