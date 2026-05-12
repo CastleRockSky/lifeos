@@ -15,6 +15,7 @@ Auth: every inbound request must carry `Authorization: Bearer <key>` or
 """
 
 import base64
+import json
 import logging
 import os
 import tempfile
@@ -345,47 +346,80 @@ async def get_trend(
     return r.json()
 
 
-# ── Custom auth middleware ──────────────────────────────────────────────
+# ── Custom auth middleware (pure ASGI) ──────────────────────────────────
+#
+# We can't use Starlette's BaseHTTPMiddleware here because it buffers the
+# entire response body to let dispatch() inspect/modify it — that breaks
+# streaming responses (and streamable-HTTP MCP is streaming end-to-end).
+# Pure ASGI middleware passes events through without buffering.
 
-def _extract_token(request: Request) -> Optional[str]:
-    """Pull the agent key from Authorization: Bearer ... or X-Agent-Key."""
-    auth = request.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        return auth[7:].strip()
-    return request.headers.get("x-agent-key", "").strip() or None
+class AuthMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        # Health probe is open so docker healthchecks + operators can diagnose
+        # the auth-config state without needing the key.
+        if path == "/health":
+            await self.app(scope, receive, send)
+            return
+
+        if not MCP_AGENT_KEY:
+            await _send_json_response(send, 503, {
+                "error": "MCP_AGENT_KEY not configured on the server",
+            })
+            return
+
+        # Extract Bearer token or X-Agent-Key (case-insensitive header lookup)
+        token: Optional[str] = None
+        for raw_name, raw_value in scope.get("headers", []):
+            name = raw_name.decode("latin-1").lower()
+            if name == "authorization":
+                v = raw_value.decode("latin-1")
+                if v.lower().startswith("bearer "):
+                    token = v[7:].strip()
+                    break
+            elif name == "x-agent-key" and not token:
+                token = raw_value.decode("latin-1").strip()
+
+        if token != MCP_AGENT_KEY:
+            await _send_json_response(send, 401, {
+                "error": "invalid_token",
+                "message": "Provide MCP_AGENT_KEY via Authorization: Bearer <key> or X-Agent-Key header",
+            })
+            return
+
+        await self.app(scope, receive, send)
 
 
-async def auth_middleware(request: Request, call_next):
-    # Health probe path bypasses auth so docker-compose healthchecks +
-    # operators can quickly diagnose configuration without a key.
-    if request.url.path == "/health":
-        return await call_next(request)
-    if not MCP_AGENT_KEY:
-        return JSONResponse(
-            {"error": "MCP_AGENT_KEY not configured on the server"},
-            status_code=503,
-        )
-    token = _extract_token(request)
-    if token != MCP_AGENT_KEY:
-        return JSONResponse(
-            {"error": "invalid_token", "message": "Provide MCP_AGENT_KEY via Authorization: Bearer <key> or X-Agent-Key header"},
-            status_code=401,
-        )
-    return await call_next(request)
+async def _send_json_response(send, status: int, body: dict):
+    payload = json.dumps(body).encode()
+    await send({
+        "type": "http.response.start",
+        "status": status,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(payload)).encode()),
+        ],
+    })
+    await send({"type": "http.response.body", "body": payload, "more_body": False})
 
 
 # ── Entry point ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     from starlette.applications import Starlette
-    from starlette.middleware import Middleware
-    from starlette.middleware.base import BaseHTTPMiddleware
-    from starlette.routing import Route
+    from starlette.routing import Mount, Route
     import uvicorn
 
     # FastMCP exposes its underlying Starlette app via .streamable_http_app()
-    # (the modern transport). We wrap it with auth middleware + a /health
-    # endpoint for docker-compose healthchecks.
+    # (the modern transport). Don't use BaseHTTPMiddleware to wrap it — that
+    # buffers responses and breaks streaming.
     inner = mcp.streamable_http_app()
 
     async def health(_request):
@@ -395,13 +429,18 @@ if __name__ == "__main__":
             "auth_configured": bool(MCP_AGENT_KEY),
         })
 
-    app = Starlette(
+    # Two-route app: /health (open) + everything else (mounted MCP, auth-gated).
+    # Routes-based composition avoids the slash-redirect problem that comes
+    # with app.mount("/", inner): inner's own /mcp routes (with both slash
+    # variants) are reachable directly.
+    base = Starlette(
         debug=False,
-        routes=[Route("/health", health)],
-        middleware=[Middleware(BaseHTTPMiddleware, dispatch=auth_middleware)],
+        routes=[
+            Route("/health", health),
+            Mount("/", app=inner),
+        ],
     )
-    # Mount FastMCP's app at the root so /mcp endpoints resolve.
-    app.mount("/", inner)
+    app = AuthMiddleware(base)
 
     logger.info(f"LifeOS MCP server starting on {MCP_HOST}:{MCP_PORT}")
     logger.info(f"  LifeOS API: {LIFEOS_API_URL}")
