@@ -1,0 +1,12 @@
+# LifeOS nightly backup
+# Installed by scripts/install-backup-cron.sh to /etc/cron.d/lifeos-backup
+#
+# Runs scripts/backup.sh at 03:00 local time each night.
+# Output (including errors) appends to /var/log/lifeos-backup.log.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=
+
+# m h dom mon dow user command
+0 3 * * * root /home/dave/lifeos/scripts/backup.sh >> /var/log/lifeos-backup.log 2>&1
