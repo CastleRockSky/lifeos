@@ -10,14 +10,15 @@
 # SHARE_PASSWORD, otherwise re-generates one.
 #
 # Usage:
-#     sudo scripts/setup-scanner-share.sh
+#     sudo scripts/setup-scanner-share.sh [-g|--guest]
 #
-# Optional env vars:
+# Optional env vars (or flags):
 #     SHARE_NAME       (default: lifeos-inbox)
-#     SHARE_USER       (default: scanner)
+#     SHARE_USER       (default: scanner; if name conflicts with an existing
+#                       group like CUPS's, override with e.g. SHARE_USER=lifeos-scan)
 #     SHARE_PASSWORD   (default: random 20-char string)
 #     INBOX_DIR        (default: ${DATA_PATH:-/srv/lifeos}/documents/inbox)
-#     SHARE_GUEST=1    (allow anonymous writes — some older scanners need this)
+#     SHARE_GUEST=1    (allow anonymous writes — same as -g/--guest)
 
 set -euo pipefail
 
@@ -26,6 +27,23 @@ SHARE_USER="${SHARE_USER:-scanner}"
 INBOX_DIR="${INBOX_DIR:-${DATA_PATH:-/srv/lifeos}/documents/inbox}"
 SHARE_PASSWORD="${SHARE_PASSWORD:-}"
 SHARE_GUEST="${SHARE_GUEST:-0}"
+
+# Flag parsing
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -g|--guest) SHARE_GUEST=1 ;;
+        -h|--help)
+            sed -n '2,21p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            echo "Usage: sudo $0 [-g|--guest]" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 if [ "$EUID" -ne 0 ]; then
     echo "ERROR: must be run as root (use sudo)." >&2
@@ -37,9 +55,19 @@ apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     samba samba-common-bin avahi-daemon >/dev/null
 
-echo "[2/8] Ensuring system user '$SHARE_USER' exists..."
+echo "[2/8] Ensuring system group + user '$SHARE_USER' exist..."
+# Some distros pre-install a 'scanner' system group (e.g. CUPS / SANE).
+# Reuse it instead of failing — useradd's default --user-group flag
+# conflicts with an existing group of the same name.
+if ! getent group "$SHARE_USER" >/dev/null; then
+    groupadd --system "$SHARE_USER"
+    echo "       Created group $SHARE_USER"
+else
+    echo "       Group $SHARE_USER already exists (reusing)"
+fi
 if ! id -u "$SHARE_USER" >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin "$SHARE_USER"
+    useradd --system --no-create-home --shell /usr/sbin/nologin \
+        --gid "$SHARE_USER" "$SHARE_USER"
     echo "       Created user $SHARE_USER"
 else
     echo "       User $SHARE_USER already exists"
