@@ -36,13 +36,30 @@ if [ ! -x "$BACKUP_SCRIPT" ]; then
     exit 1
 fi
 
-# Surface Azure env vars from .env so we can decide whether to install azcopy
-if [ -f "$REPO_DIR/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    . "$REPO_DIR/.env"
-    set +a
-fi
+# Surface Azure env vars from .env (docker-compose .env format — values may
+# contain shell metacharacters, so don't `source` it). Reuses the same loader
+# the backup script ships with so behavior is identical.
+load_env() {
+    local file="$1"
+    [ -f "$file" ] || return 0
+    local line key value
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$line" ] && continue
+        [ "${line:0:1}" = "#" ] && continue
+        [ "${line:0:7}" = "export " ] && line="${line:7}"
+        case "$line" in *=*) ;; *) continue;; esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        if [ "${value:0:1}" = '"' ] && [ "${value: -1}" = '"' ]; then
+            value="${value:1:${#value}-2}"
+        elif [ "${value:0:1}" = "'" ] && [ "${value: -1}" = "'" ]; then
+            value="${value:1:${#value}-2}"
+        fi
+        export "$key=$value"
+    done < "$file"
+}
+load_env "$REPO_DIR/.env"
 
 if [ -n "${AZURE_STORAGE_ACCOUNT:-}" ] && [ -n "${AZURE_CONTAINER:-}" ] && [ -n "${AZURE_SAS_TOKEN:-}" ]; then
     AZURE_CONFIGURED=1

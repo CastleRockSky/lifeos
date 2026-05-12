@@ -19,16 +19,37 @@
 set -euo pipefail
 
 # Pull in repo-level .env if present, so cron-invoked runs see Azure creds
-# without needing them in /etc/cron.d/lifeos-backup. The .env is owned by
-# the repo's user and contains key=value pairs — bash-source-compatible.
+# without needing them in /etc/cron.d/lifeos-backup.
+#
+# Note: we DON'T `source` the file. docker-compose's .env format is a
+# literal KEY=VALUE list with no shell expansion, so values containing
+# `&` (like SAS tokens) or other shell metacharacters break `bash -c`
+# sourcing. Roll our own docker-compose-compatible parser instead.
+load_env() {
+    local file="$1"
+    [ -f "$file" ] || return 0
+    local line key value
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line#"${line%%[![:space:]]*}"}"   # strip leading whitespace
+        [ -z "$line" ] && continue
+        [ "${line:0:1}" = "#" ] && continue
+        [ "${line:0:7}" = "export " ] && line="${line:7}"
+        case "$line" in *=*) ;; *) continue;; esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        # Strip a single matched pair of surrounding quotes, if present.
+        if [ "${value:0:1}" = '"' ] && [ "${value: -1}" = '"' ]; then
+            value="${value:1:${#value}-2}"
+        elif [ "${value:0:1}" = "'" ] && [ "${value: -1}" = "'" ]; then
+            value="${value:1:${#value}-2}"
+        fi
+        export "$key=$value"
+    done < "$file"
+}
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [ -f "$REPO_DIR/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    . "$REPO_DIR/.env"
-    set +a
-fi
+load_env "$REPO_DIR/.env"
 
 DATA_PATH="${DATA_PATH:-/srv/lifeos}"
 BACKUP_DIR="${BACKUP_DIR:-${DATA_PATH}/backups}"
