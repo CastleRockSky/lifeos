@@ -6,7 +6,7 @@ length. Used by the user dashboard and the HealthBot agent API.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from database import get_pool
@@ -99,6 +99,127 @@ async def compute_trend(
         "prior_count": prev["n"],
         "current_window": {"start": cur_start.isoformat(), "end": now.isoformat()},
         "prior_window": {"start": prior_start.isoformat(), "end": cur_start.isoformat()},
+    }
+
+
+_RANGE_DAYS = {
+    "30d": 30, "90d": 90, "6m": 183, "1y": 365, "all": None,
+}
+
+
+_PERIOD_TRUNC = {
+    "daily": "day",
+    "weekly": "week",
+    "monthly": "month",
+}
+
+
+async def aggregated_series(
+    *,
+    subject_id: str,
+    metric_type: str,
+    period: str = "weekly",
+    range_key: str = "90d",
+    goal: Optional[float] = None,
+) -> dict:
+    """Return time-bucketed averages with summary stats and projection.
+
+    period: daily | weekly | monthly — date_trunc bucket size.
+    range_key: 30d | 90d | 6m | 1y | all.
+    goal: optional target value used to project a goal date from the recent slope.
+    """
+    trunc = _PERIOD_TRUNC.get(period.lower())
+    if not trunc:
+        raise ValueError(f"Unknown period: {period}")
+    if range_key not in _RANGE_DAYS:
+        raise ValueError(f"Unknown range: {range_key}")
+
+    sid = uuid.UUID(subject_id)
+    pool = get_pool()
+    now = datetime.now(timezone.utc)
+    window_days = _RANGE_DAYS[range_key]
+    since = (now - timedelta(days=window_days)) if window_days else None
+
+    async with pool.acquire() as conn:
+        if since is not None:
+            rows = await conn.fetch(f"""
+                SELECT date_trunc('{trunc}', recorded_at) AS bucket,
+                       AVG(value_numeric) AS avg,
+                       COUNT(*) AS n
+                FROM time_series_metrics
+                WHERE subject_id = $1 AND metric_type = $2
+                  AND value_numeric IS NOT NULL
+                  AND recorded_at >= $3
+                GROUP BY bucket
+                ORDER BY bucket
+            """, sid, metric_type, since)
+        else:
+            rows = await conn.fetch(f"""
+                SELECT date_trunc('{trunc}', recorded_at) AS bucket,
+                       AVG(value_numeric) AS avg,
+                       COUNT(*) AS n
+                FROM time_series_metrics
+                WHERE subject_id = $1 AND metric_type = $2
+                  AND value_numeric IS NOT NULL
+                GROUP BY bucket
+                ORDER BY bucket
+            """, sid, metric_type)
+
+    points = [
+        {"date": r["bucket"].date().isoformat(), "value": float(r["avg"]), "n": r["n"]}
+        for r in rows
+    ]
+
+    summary: dict = {
+        "average": None, "min": None, "max": None,
+        "trend_direction": "unknown", "trend_rate": None,
+        "goal": goal, "projected_goal_date": None,
+    }
+    if points:
+        values = [p["value"] for p in points]
+        summary["average"] = round(sum(values) / len(values), 3)
+        summary["min"] = round(min(values), 3)
+        summary["max"] = round(max(values), 3)
+
+        # Linear regression slope on the last up-to-12 points (units per day),
+        # converted to "units per week" for display.
+        recent = points[-12:]
+        if len(recent) >= 2:
+            d0 = date.fromisoformat(recent[0]["date"]).toordinal()
+            xs = [date.fromisoformat(p["date"]).toordinal() - d0 for p in recent]
+            ys = [p["value"] for p in recent]
+            n = len(xs)
+            mean_x = sum(xs) / n
+            mean_y = sum(ys) / n
+            num = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in range(n))
+            den = sum((xs[i] - mean_x) ** 2 for i in range(n))
+            slope_per_day = (num / den) if den else 0.0
+            slope_per_week = round(slope_per_day * 7, 4)
+            summary["trend_rate"] = slope_per_week
+            tolerance = max(abs(mean_y), 1) * 0.001
+            if abs(slope_per_day) <= tolerance:
+                summary["trend_direction"] = "flat"
+            elif slope_per_day > 0:
+                summary["trend_direction"] = "up"
+            else:
+                summary["trend_direction"] = "down"
+
+            if goal is not None and slope_per_day != 0:
+                current = ys[-1]
+                # Days needed to traverse (goal - current) at slope_per_day, only
+                # if we're moving toward the goal.
+                gap = goal - current
+                if (gap > 0 and slope_per_day > 0) or (gap < 0 and slope_per_day < 0):
+                    days_to_goal = gap / slope_per_day
+                    proj = date.today() + timedelta(days=int(round(days_to_goal)))
+                    summary["projected_goal_date"] = proj.isoformat()
+
+    return {
+        "data_points": points,
+        **summary,
+        "metric_type": metric_type,
+        "period": period,
+        "range": range_key,
     }
 
 

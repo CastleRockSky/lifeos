@@ -477,6 +477,9 @@
             <button class="nav-item" :class="{ active: view === 'pets' }" @click="navigate('pets')">
                 Pets
             </button>
+            <button class="nav-item" :class="{ active: view === 'trends' }" @click="navigate('trends')">
+                Trends
+            </button>
         </div>
 
         <div class="sidebar-section">
@@ -1536,6 +1539,85 @@
             </div>
         </template>
 
+        <!-- Trends -->
+        <template x-if="view === 'trends'">
+            <div>
+                <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                    <h2>Trends</h2>
+                    <select x-model="trends.subjectId" @change="loadTrendChart()"
+                            style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                        <template x-for="s in (subjects || [])" :key="s.id">
+                            <option :value="s.id" x-text="s.name"></option>
+                        </template>
+                    </select>
+                    <select x-model="trends.metric" @change="loadTrendChart()"
+                            style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                        <template x-for="m in trends.knownMetrics" :key="m">
+                            <option :value="m" x-text="m.replace(/_/g,' ')"></option>
+                        </template>
+                    </select>
+                    <select x-model="trends.range" @change="loadTrendChart()"
+                            style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                        <option value="30d">30 days</option>
+                        <option value="90d">90 days</option>
+                        <option value="6m">6 months</option>
+                        <option value="1y">1 year</option>
+                        <option value="all">All</option>
+                    </select>
+                    <select x-model="trends.period" @change="loadTrendChart()"
+                            style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                </div>
+
+                <template x-if="trends.data?.data_points?.length > 0">
+                    <div style="background:var(--bg-card); padding:1rem; border-radius:8px; border:1px solid var(--border);">
+                        <div style="display:flex; gap:1.5rem; font-size:0.85rem; margin-bottom:0.75rem;">
+                            <div><strong>Avg:</strong> <span x-text="trends.data?.average?.toFixed?.(2)"></span></div>
+                            <div><strong>Min:</strong> <span x-text="trends.data?.min"></span></div>
+                            <div><strong>Max:</strong> <span x-text="trends.data?.max"></span></div>
+                            <div :style="trends.data?.trend_direction === 'up' ? 'color:var(--danger);' :
+                                          (trends.data?.trend_direction === 'down' ? 'color:var(--success);' : '')">
+                                <strong>Trend:</strong> <span x-text="trends.data?.trend_direction"></span>
+                                <span x-show="trends.data?.trend_rate != null" x-text="' (' + (trends.data.trend_rate > 0 ? '+' : '') + trends.data.trend_rate + '/wk)'"></span>
+                            </div>
+                        </div>
+                        <div x-html="lineChartSvg(trends.data.data_points, 800, 240)"></div>
+                    </div>
+                </template>
+
+                <template x-if="!trends.data || (trends.data?.data_points?.length || 0) === 0">
+                    <div class="empty-state" style="padding:1rem;">
+                        <p style="font-size:0.85rem; color:var(--text-muted);">
+                            No data points for this metric in the selected range.
+                        </p>
+                    </div>
+                </template>
+
+                <!-- Quick reports -->
+                <div style="margin-top:1.5rem;">
+                    <div class="page-header"><h2>Reports</h2></div>
+                    <div class="row" style="display:flex; gap:0.5rem; align-items:center;">
+                        <select x-model="trends.reportYear" style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                            <template x-for="y in [2024, 2025, 2026]" :key="y">
+                                <option :value="y" x-text="y"></option>
+                            </template>
+                        </select>
+                        <select x-model="trends.reportMonth" style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                            <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]" :key="m">
+                                <option :value="m" x-text="m"></option>
+                            </template>
+                        </select>
+                        <a class="btn btn-sm btn-primary"
+                           :href="'/api/reports/monthly?year=' + trends.reportYear + '&month=' + trends.reportMonth + '&format=markdown'"
+                           target="_blank">View monthly report</a>
+                    </div>
+                </div>
+            </div>
+        </template>
+
         <!-- Pet Health Card -->
         <template x-if="view === 'pets'">
             <div>
@@ -1943,6 +2025,22 @@ function lifeos() {
         // Pets (Phase 8)
         pets: { list: [], selectedId: '', card: null },
 
+        // Trends (Phase 9)
+        trends: {
+            subjectId: '',
+            metric: 'weight',
+            range: '90d',
+            period: 'weekly',
+            data: null,
+            knownMetrics: [
+                'weight', 'blood_pressure_systolic', 'blood_pressure_diastolic',
+                'heart_rate_resting', 'a1c', 'cholesterol_total', 'cholesterol_ldl', 'cholesterol_hdl',
+                'pet_weight', 'mileage', 'credit_card_balance', 'bank_account_balance', 'net_worth',
+            ],
+            reportYear: new Date().getFullYear(),
+            reportMonth: new Date().getMonth() + 1,
+        },
+
         // Modals
         showUpload: false,
         showEditDoc: false,
@@ -2007,6 +2105,7 @@ function lifeos() {
             if (v === 'auto') this.loadAuto();
             if (v === 'home_dash') this.loadHome();
             if (v === 'pets') this.loadPets();
+            if (v === 'trends') this.initTrendsView();
         },
 
         async api(url, opts = {}) {
@@ -2368,6 +2467,86 @@ function lifeos() {
                 ((c.data?.trade || '') + ' ' + (c.data?.name || '') + ' ' + (c.data?.notes || ''))
                     .toLowerCase().includes(q)
             );
+        },
+
+        async initTrendsView() {
+            if (!this.subjects?.length) await this.loadSubjects();
+            if (!this.trends.subjectId) {
+                const primary = (this.subjects || []).find((s) => s.is_primary) || (this.subjects || [])[0];
+                if (primary) this.trends.subjectId = primary.id;
+            }
+            await this.loadTrendChart();
+        },
+
+        async loadTrendChart() {
+            if (!this.trends.subjectId || !this.trends.metric) return;
+            try {
+                const url = `/api/trends/${this.trends.subjectId}/${this.trends.metric}` +
+                            `?range=${this.trends.range}&period=${this.trends.period}`;
+                const res = await fetch(url);
+                if (!res.ok) { this.trends.data = null; return; }
+                this.trends.data = (await res.json()).data;
+            } catch {
+                this.trends.data = null;
+            }
+        },
+
+        sparkline(values, w = 80, h = 22) {
+            if (!values || values.length < 2) return '';
+            const min = Math.min(...values), max = Math.max(...values);
+            const range = (max - min) || 1;
+            const step = w / (values.length - 1);
+            const points = values.map((v, i) =>
+                `${(i * step).toFixed(1)},${(h - ((v - min) / range) * h).toFixed(1)}`
+            ).join(' ');
+            return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+                        <polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${points}"/>
+                    </svg>`;
+        },
+
+        lineChartSvg(points, w = 800, h = 240) {
+            if (!points || points.length === 0) return '';
+            const padL = 40, padR = 10, padT = 10, padB = 28;
+            const innerW = w - padL - padR, innerH = h - padT - padB;
+            const values = points.map((p) => p.value);
+            const min = Math.min(...values), max = Math.max(...values);
+            const range = (max - min) || 1;
+            const xStep = innerW / Math.max(1, points.length - 1);
+            const xy = (i, v) => [
+                padL + i * xStep,
+                padT + innerH - ((v - min) / range) * innerH,
+            ];
+            const poly = points.map((p, i) => xy(i, p.value).join(',')).join(' ');
+            const area = poly + ' ' + (padL + (points.length - 1) * xStep) + ',' + (padT + innerH)
+                              + ' ' + padL + ',' + (padT + innerH);
+            // Y-axis ticks
+            const ticks = 4;
+            const tickLines = [];
+            for (let i = 0; i <= ticks; i++) {
+                const yVal = min + (range * i) / ticks;
+                const y = padT + innerH - ((yVal - min) / range) * innerH;
+                tickLines.push(
+                    `<line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#30363d" stroke-width="1"/>` +
+                    `<text x="${padL - 5}" y="${y + 4}" fill="#8b949e" font-size="10" text-anchor="end">${yVal.toFixed(1)}</text>`
+                );
+            }
+            // X-axis labels: first, middle, last
+            const idxs = points.length === 1 ? [0] : [0, Math.floor(points.length / 2), points.length - 1];
+            const xLabels = idxs.map((i) => {
+                const [x, _] = xy(i, points[i].value);
+                return `<text x="${x}" y="${h - 8}" fill="#8b949e" font-size="10" text-anchor="middle">${points[i].date}</text>`;
+            }).join('');
+            const dots = points.map((p, i) => {
+                const [x, y] = xy(i, p.value);
+                return `<circle cx="${x}" cy="${y}" r="2.5" fill="#58a6ff"/>`;
+            }).join('');
+            return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" xmlns="http://www.w3.org/2000/svg">
+                        ${tickLines.join('')}
+                        <polygon fill="rgba(88,166,255,0.15)" points="${area}"/>
+                        <polyline fill="none" stroke="#58a6ff" stroke-width="2" points="${poly}"/>
+                        ${dots}
+                        ${xLabels}
+                    </svg>`;
         },
 
         async loadPets() {
