@@ -121,6 +121,7 @@ async def analyze_document(
     mime_type: str = "",
     existing_domain: str = None,
     existing_category: str = None,
+    extra_context: str = "",
 ) -> AnalysisResult:
     """Analyze document text with Claude and return structured results.
 
@@ -151,6 +152,8 @@ async def analyze_document(
             parts.append(f"User-assigned domain: {existing_domain}")
         if existing_category:
             parts.append(f"User-assigned category: {existing_category}")
+        if extra_context:
+            parts.append(f"Source context:\n{extra_context}")
         parts.append(f"\nDocument text:\n{truncated}")
 
         user_message = "\n".join(parts)

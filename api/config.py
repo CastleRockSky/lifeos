@@ -36,6 +36,21 @@ class Settings(BaseSettings):
     inbox_poll_interval: int = 10
     inbox_stability_seconds: int = 5
 
+    # Email forwarding ingestion (Phase 3)
+    # Disabled until IMAP credentials are provided.
+    imap_enabled: bool = False
+    imap_host: str = ""
+    imap_port: int = 993
+    imap_username: str = ""
+    imap_password: str = ""
+    imap_mailbox: str = "INBOX"
+    imap_poll_interval: int = 120          # seconds — spec calls for ~2 min
+    imap_processed_label: str = "LifeOS/Processed"  # Gmail label or IMAP folder for processed mail
+    imap_failed_label: str = "LifeOS/Failed"
+    imap_use_ssl: bool = True
+    imap_max_message_size: int = 50 * 1024 * 1024  # 50 MB cap on raw email size
+    imap_max_retries: int = 3
+
     class Config:
         env_file = ".env"
 

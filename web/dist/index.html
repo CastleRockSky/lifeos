@@ -538,6 +538,55 @@
                     </div>
                 </template>
 
+                <!-- Email Ingestion (Phase 3) -->
+                <template x-if="emailStatus?.enabled">
+                    <div style="margin-bottom: 1.5rem;">
+                        <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                            <h2>Email Inbox</h2>
+                            <span style="font-size:0.75rem; color:var(--text-muted);"
+                                  x-text="emailStatus?.watcher?.imap_username + ' @ ' + emailStatus?.watcher?.imap_host"></span>
+                            <span class="badge"
+                                  :style="emailStatus?.watcher?.running ? 'background:var(--success);' : 'background:var(--text-muted);'"
+                                  x-text="emailStatus?.watcher?.running ? 'live' : 'idle'"></span>
+                            <span x-show="(emailStatus?.totals?.failed || 0) > 0"
+                                  class="badge" style="background:var(--danger);"
+                                  x-text="emailStatus?.totals?.failed + ' failed'"></span>
+                        </div>
+                        <template x-if="(emailStatus?.recent || []).length === 0">
+                            <div class="empty-state" style="padding:1rem;">
+                                <p style="font-size:0.85rem; color:var(--text-muted);">
+                                    No emails processed yet. Forward a message to
+                                    <strong x-text="emailStatus?.watcher?.imap_username"></strong> to test.
+                                </p>
+                            </div>
+                        </template>
+                        <template x-for="em in (emailStatus?.recent || []).slice(0, 5)" :key="em.id">
+                            <div class="action-item" :class="{ overdue: em.status === 'failed' }">
+                                <div class="action-item-content">
+                                    <div class="action-item-title" x-text="em.clean_subject || em.subject || '(no subject)'"></div>
+                                    <div class="action-item-meta">
+                                        <span class="badge"
+                                              :style="em.status === 'processed' ? 'background:var(--success);' : (em.status === 'failed' ? 'background:var(--danger);' : 'background:var(--text-muted);')"
+                                              x-text="em.status"></span>
+                                        <span x-text="em.original_sender || em.sender"></span>
+                                        <span x-show="em.document_count > 0"
+                                              x-text="em.document_count + ' doc' + (em.document_count === 1 ? '' : 's')"></span>
+                                        <span x-show="em.attachment_count > 0 && em.document_count === 0"
+                                              x-text="em.attachment_count + ' attachment' + (em.attachment_count === 1 ? '' : 's')"></span>
+                                        <span x-text="formatDate(em.processed_at || em.received_at)"></span>
+                                    </div>
+                                    <div x-show="em.error_message"
+                                         style="color:var(--danger); font-size:0.75rem; margin-top:0.25rem;"
+                                         x-text="em.error_message"></div>
+                                </div>
+                                <div class="action-item-actions" x-show="em.status === 'failed'">
+                                    <button class="btn btn-xs" @click="retryEmail(em.id)">Retry</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
                 <div class="page-header"><h2>Recent Documents</h2></div>
                 <div class="card-grid">
                     <template x-for="doc in documents.slice(0, 6)" :key="doc.id">
@@ -1200,6 +1249,9 @@ function lifeos() {
         reviewDocs: [],
         expirations: [],
 
+        // Email ingestion (Phase 3)
+        emailStatus: null,
+
         // Modals
         showUpload: false,
         showEditDoc: false,
@@ -1246,6 +1298,7 @@ function lifeos() {
                 this.loadCategories(),
                 this.loadOverdue(),
                 this.loadExpirations(),
+                this.loadEmailStatus(),
             ]);
         },
 
@@ -1254,7 +1307,7 @@ function lifeos() {
             this.prevView = this.view;
             this.view = v;
             if (v === 'documents') this.loadDocuments();
-            if (v === 'home') { this.loadStats(); this.loadDocuments(); this.loadOverdue(); this.loadExpirations(); }
+            if (v === 'home') { this.loadStats(); this.loadDocuments(); this.loadOverdue(); this.loadExpirations(); this.loadEmailStatus(); }
             if (v === 'subjects') this.loadSubjects();
             if (v === 'actions') this.loadActions();
             if (v === 'review') this.loadReviewQueue();
@@ -1351,6 +1404,28 @@ function lifeos() {
                 this.reviewDocs = res.data;
             } catch {}
             this.loading = false;
+        },
+
+        async loadEmailStatus() {
+            try {
+                const res = await fetch('/api/email/status');
+                if (res.ok) this.emailStatus = (await res.json()).data;
+            } catch {}
+        },
+
+        async retryEmail(id) {
+            try {
+                const res = await this.api('/api/email/retry/' + id, { method: 'POST' });
+                const r = res.data || {};
+                if (r.ok) {
+                    this.toast('Email queued for retry');
+                } else if (r.error === 'attachments_not_replayable') {
+                    this.toast('Re-forward the original email to retry attachments', 'error');
+                } else {
+                    this.toast('Retry failed: ' + (r.error || 'unknown'), 'error');
+                }
+                this.loadEmailStatus();
+            } catch {}
         },
 
         // ── Search ──────────────────────────────────────

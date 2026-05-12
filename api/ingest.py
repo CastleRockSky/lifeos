@@ -74,10 +74,17 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
     pool = get_pool()
     try:
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT content_text, title, mime_type, domain, category, subject_id FROM documents WHERE id = $1",
-                uuid.UUID(doc_id),
-            )
+            row = await conn.fetchrow("""
+                SELECT d.content_text, d.title, d.mime_type, d.domain, d.category,
+                       d.subject_id, d.email_message_id,
+                       em.sender AS email_sender,
+                       em.original_sender AS email_original_sender,
+                       em.subject AS email_subject,
+                       em.clean_subject AS email_clean_subject
+                FROM documents d
+                LEFT JOIN email_messages em ON em.id = d.email_message_id
+                WHERE d.id = $1
+            """, uuid.UUID(doc_id))
         if not row or not row["content_text"]:
             async with pool.acquire() as conn:
                 await conn.execute(
@@ -92,12 +99,26 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
         existing_domain = domain or row["domain"]
         existing_category = category or row["category"]
 
+        # If this doc came from a forwarded email, surface the email
+        # subject/sender to the AI as additional classification context.
+        extra_context = ""
+        if row["email_message_id"]:
+            ctx_lines = []
+            sender = row["email_original_sender"] or row["email_sender"]
+            if sender:
+                ctx_lines.append(f"Forwarded email from: {sender}")
+            subj = row["email_clean_subject"] or row["email_subject"]
+            if subj:
+                ctx_lines.append(f"Email subject: {subj}")
+            extra_context = "\n".join(ctx_lines)
+
         result = await analyze_document(
             text=row["content_text"],
             filename=row["title"],
             mime_type=row["mime_type"],
             existing_domain=existing_domain,
             existing_category=existing_category,
+            extra_context=extra_context,
         )
 
         # Parse dates
@@ -239,6 +260,32 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                     )
 
         logger.info(f"AI analysis complete for {doc_id}: confidence={result.confidence}")
+
+        # ── Email sender learning ─────────────────────────────────────
+        # If this doc came from a forwarded email and the AI is confident,
+        # update the email_sender_map so future emails from the same sender
+        # can be pre-classified.
+        if result.confidence >= 0.75 and apply_domain:
+            try:
+                async with pool.acquire() as conn:
+                    email_row = await conn.fetchrow("""
+                        SELECT em.sender, em.original_sender
+                        FROM documents d
+                        JOIN email_messages em ON em.id = d.email_message_id
+                        WHERE d.id = $1
+                    """, uuid.UUID(doc_id))
+                if email_row:
+                    from email_ingest import learn_sender_mapping
+                    sender_to_learn = email_row["original_sender"] or email_row["sender"]
+                    if sender_to_learn:
+                        await learn_sender_mapping(
+                            sender_to_learn,
+                            domain=apply_domain,
+                            category=apply_category,
+                            subject_hint=result.subject_hint,
+                        )
+            except Exception as learn_err:
+                logger.warning(f"Sender mapping update failed for {doc_id}: {learn_err}")
 
     except Exception as e:
         logger.error(f"AI analysis failed for {doc_id}: {e}")

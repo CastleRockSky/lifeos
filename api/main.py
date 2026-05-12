@@ -17,7 +17,7 @@ from config import get_settings
 from database import init_pool, close_pool
 from search import ensure_collection
 
-from routers import system, subjects, documents, search, actions
+from routers import system, subjects, documents, search, actions, email
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,15 +39,22 @@ async def lifespan(app: FastAPI):
         from inbox_watcher import watch_inbox
         inbox_task = asyncio.create_task(watch_inbox())
 
+    # Start IMAP email watcher if enabled
+    imap_task = None
+    if settings.imap_enabled:
+        from email_ingest import watch_imap
+        imap_task = asyncio.create_task(watch_imap())
+
     yield
 
-    # Stop inbox watcher
-    if inbox_task is not None:
-        inbox_task.cancel()
-        try:
-            await inbox_task
-        except asyncio.CancelledError:
-            pass
+    # Stop background watchers
+    for task in (inbox_task, imap_task):
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     await close_pool()
 
@@ -68,3 +75,4 @@ app.include_router(subjects.router)
 app.include_router(documents.router)
 app.include_router(search.router)
 app.include_router(actions.router)
+app.include_router(email.router)

@@ -20,6 +20,9 @@ Pillow>=10.3.0,<11.0.0
 python-magic==0.4.27
 chardet==5.2.0
 
+# Email ingestion (Phase 3)
+aioimaplib==1.1.0
+
 # Utilities
 pydantic==2.10.3
 pydantic-settings==2.7.0

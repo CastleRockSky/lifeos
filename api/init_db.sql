@@ -48,6 +48,7 @@ CREATE TABLE documents (
     ai_prompt_version INTEGER DEFAULT 1,
     tags TEXT[] DEFAULT '{}',
     uploaded_by VARCHAR(100),
+    email_message_id UUID,                  -- FK added below (forward declaration)
     ingested_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -129,6 +130,57 @@ CREATE TABLE audit_log (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── Email Messages (Phase 3) ─────────────────────────────────────────────
+-- One row per ingested email. Documents created from attachments (or from
+-- the email body itself, when there are no attachments) reference this row
+-- via documents.email_message_id.
+CREATE TABLE email_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    message_id VARCHAR(998) UNIQUE,         -- RFC 5322 Message-ID (used for dedup)
+    imap_uid BIGINT,                        -- UID assigned by source mailbox
+    sender VARCHAR(500),                    -- "from" address
+    original_sender VARCHAR(500),           -- parsed from forwarded body if present
+    recipient VARCHAR(500),                 -- "to" address (the LifeOS inbox)
+    subject TEXT,
+    clean_subject TEXT,                     -- subject with Fwd:/Re: stripped
+    body_text TEXT,
+    body_html TEXT,
+    received_at TIMESTAMPTZ,
+    attachment_count INTEGER DEFAULT 0,
+    document_count INTEGER DEFAULT 0,       -- documents successfully created
+    status VARCHAR(50) DEFAULT 'pending',   -- pending, processing, processed, failed, partial
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+    raw_size_bytes BIGINT,
+    domain_hint VARCHAR(50),                -- from sender map, if matched
+    category_hint VARCHAR(100),
+    subject_hint VARCHAR(255),
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE documents
+    ADD CONSTRAINT documents_email_message_id_fkey
+    FOREIGN KEY (email_message_id) REFERENCES email_messages(id) ON DELETE SET NULL;
+
+-- ── Email Sender Map (Phase 3) ───────────────────────────────────────────
+-- Builds up over time: known senders → domain/category/subject pre-classifier.
+CREATE TABLE email_sender_map (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sender_pattern VARCHAR(500) NOT NULL UNIQUE,  -- exact address or "*@domain.com"
+    domain VARCHAR(50),
+    category VARCHAR(100),
+    subject_hint VARCHAR(255),              -- e.g. pet name for vet emails
+    notes TEXT,
+    auto_learned BOOLEAN DEFAULT false,     -- true if added by the system, false if manual
+    confidence REAL DEFAULT 0.0,            -- raised as more emails confirm the mapping
+    match_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    last_matched_at TIMESTAMPTZ
+);
+
 -- ── Agent API Keys ──────────────────────────────────────────────────────
 CREATE TABLE agent_api_keys (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -186,6 +238,17 @@ CREATE INDEX idx_audit_created ON audit_log(created_at);
 -- Agent API Keys
 CREATE INDEX idx_agent_keys_active ON agent_api_keys(is_active) WHERE is_active = true;
 
+-- Email Messages
+CREATE INDEX idx_email_messages_status ON email_messages(status);
+CREATE INDEX idx_email_messages_received ON email_messages(received_at DESC);
+CREATE INDEX idx_email_messages_sender ON email_messages(sender);
+
+-- Documents → Email link
+CREATE INDEX idx_documents_email_message ON documents(email_message_id) WHERE email_message_id IS NOT NULL;
+
+-- Email Sender Map
+CREATE INDEX idx_email_sender_map_pattern ON email_sender_map(sender_pattern);
+
 -- ── Updated_at Trigger ──────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION update_updated_at()
@@ -204,6 +267,10 @@ CREATE TRIGGER structured_records_updated_at
     BEFORE UPDATE ON structured_records FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER action_items_updated_at
     BEFORE UPDATE ON action_items FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER email_messages_updated_at
+    BEFORE UPDATE ON email_messages FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER email_sender_map_updated_at
+    BEFORE UPDATE ON email_sender_map FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ── Seed Data ───────────────────────────────────────────────────────────
 

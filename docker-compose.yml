@@ -63,6 +63,16 @@ services:
       INBOX_DIR: /data/documents/inbox
       INBOX_POLL_INTERVAL: ${INBOX_POLL_INTERVAL:-10}
       INBOX_STABILITY_SECONDS: ${INBOX_STABILITY_SECONDS:-5}
+      # Email forwarding (Phase 3) — leave IMAP_ENABLED=false until creds are set in .env
+      IMAP_ENABLED: ${IMAP_ENABLED:-false}
+      IMAP_HOST: ${IMAP_HOST:-}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USERNAME: ${IMAP_USERNAME:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
+      IMAP_MAILBOX: ${IMAP_MAILBOX:-INBOX}
+      IMAP_POLL_INTERVAL: ${IMAP_POLL_INTERVAL:-120}
+      IMAP_PROCESSED_LABEL: ${IMAP_PROCESSED_LABEL:-LifeOS/Processed}
+      IMAP_FAILED_LABEL: ${IMAP_FAILED_LABEL:-LifeOS/Failed}
     volumes:
       - ${DATA_PATH:-/srv/lifeos}/documents:/data/documents
     ports:
