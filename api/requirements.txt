@@ -23,10 +23,10 @@ chardet==5.2.0
 # Email ingestion (Phase 3)
 aioimaplib==1.1.0
 
-# Google Calendar sync (Phase 10)
-google-auth==2.36.1
-google-auth-oauthlib==1.2.1
-google-api-python-client==2.156.0
+# Google Calendar sync (Phase 10) — use ranges so a yanked patch doesn't break the build
+google-auth>=2.36.0,<3
+google-auth-oauthlib>=1.2.1,<2
+google-api-python-client>=2.156.0,<3
 
 # Utilities
 pydantic==2.10.3
