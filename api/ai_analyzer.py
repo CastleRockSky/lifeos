@@ -21,7 +21,7 @@ from constants import DOMAINS, CATEGORIES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_PROMPT_VERSION = 5
+CURRENT_PROMPT_VERSION = 6
 
 ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. Analyze the document and return structured JSON.
 
@@ -50,6 +50,7 @@ ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. A
 For certain document types, extract numeric measurements into the `metrics` array:
 - **medical** (lab_result, test_result): Extract lab values — glucose, total_cholesterol, LDL, HDL, HbA1c, triglycerides, blood_pressure, weight, BMI, TSH, vitamin_d, creatinine, etc. Use the test/service date as `recorded_at`.
 - **financial** (credit_card_statement, bank_statement, investment_statement): Extract balances and utilization as metrics: `credit_card_balance`, `bank_account_balance`, `investment_balance`, `net_worth`, `total_credit_utilization` (percent). Use the statement date as `recorded_at`. For credit_card_statement specifically, extract one `credit_card_balance` per card.
+- **vet** (vet_visit_note, lab_result, weight check): Extract `pet_weight` (lbs), `pet_temperature` (°F), `pet_body_condition_score` (1-9). Use the visit date as `recorded_at`.
 - **auto** (service_record, inspection): Extract mileage readings as metric_type "mileage".
 - Each metric object: `{"metric_type": "glucose", "value": 102, "value_text": null, "recorded_at": "2024-03-15"}`
 - Use `value` (number) for pure numeric values. Use `value_text` (string) for compound values like blood pressure "120/80".
@@ -112,6 +113,21 @@ Supported record_type values and their data shapes:
 
 - **home_maintenance_schedule** (from owner-tracked recurring tasks, often paired with appliance):
   `{"task": "Replace HVAC filter", "interval_months": 3, "last_completed": "2025-01-15", "next_due": "2025-04-15", "estimated_cost": 25, "diy": true, "notes": "20x25x4 MERV 11 from Amazon"}`
+
+- **vet_provider** (from vet visit notes, vaccination records that introduce a clinic):
+  `{"name": "Dr. Sarah Reeves", "practice": "Bristol Veterinary Hospital", "species_specialty": "small animal", "phone": "303-555-0300", "address": "...", "next_appointment": "2025-06-15", "notes": null}`
+
+- **pet_medication** (from vet prescriptions, pet pharmacy receipts):
+  `{"name": "Apoquel", "dose": "16mg", "frequency": "1x daily", "prescriber": "Dr. Reeves", "pharmacy": "Bristol Vet", "rx_number": null, "start_date": "2024-08-01", "refill_date": "2025-04-15", "quantity": 30, "refills_remaining": 2, "indication": "Allergy itch", "weight_based_dosing": "0.4mg/kg", "status": "active", "notes": null}`
+
+- **pet_vaccination** (from vaccination records, rabies certificates, boarding requirement docs):
+  `{"name": "Rabies", "date_administered": "2024-05-12", "provider": "Bristol Vet", "lot_number": "RB-2024-882", "next_due": "2027-05-12", "series": null, "dose_number": null, "required_for_boarding": true, "notes": "3-year vaccine"}`
+
+- **pet_condition** (from diagnosis notes):
+  `{"name": "Atopic dermatitis", "diagnosed_date": "2024-08-01", "diagnosing_provider": "Dr. Reeves", "status": "active", "management": "Apoquel + hypoallergenic diet", "notes": null}`
+
+- **preventative_schedule** (flea/tick/heartworm/dental — usually a recurring product the pet takes):
+  `{"type": "flea_tick", "product": "NexGard", "dose": "68mg", "frequency": "monthly", "last_administered": "2025-03-01", "next_due": "2025-04-01", "cost_per_dose": 42, "notes": "Chewable — give with food"}`
 
 Rules:
 - Only extract records whose subject is genuinely the document's subject (skip records about other people mentioned in passing).

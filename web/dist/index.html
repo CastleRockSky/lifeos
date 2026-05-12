@@ -374,6 +374,23 @@
             to { transform: translateY(0); opacity: 1; }
         }
 
+        /* ── Print (pet health card) ───────────────────── */
+        @media print {
+            body { background: white !important; color: black !important; }
+            .sidebar, .header, .toast, .modal-overlay, .page-header button,
+            .nav-item, select, input[type="text"], input[type="number"],
+            .header-actions { display: none !important; }
+            .main { padding: 0 !important; }
+            #pet-card {
+                background: white !important;
+                color: black !important;
+                border: 1px solid #999 !important;
+                box-shadow: none !important;
+            }
+            #pet-card * { color: black !important; }
+            #pet-card .badge { border: 1px solid #666; background: white !important; }
+        }
+
         /* ── Tab Bar ───────────────────────────────────── */
         .tab-bar {
             display: flex; gap: 0; margin-bottom: 1.25rem;
@@ -456,6 +473,9 @@
             </button>
             <button class="nav-item" :class="{ active: view === 'home_dash' }" @click="navigate('home_dash')">
                 Home
+            </button>
+            <button class="nav-item" :class="{ active: view === 'pets' }" @click="navigate('pets')">
+                Pets
             </button>
         </div>
 
@@ -1516,6 +1536,166 @@
             </div>
         </template>
 
+        <!-- Pet Health Card -->
+        <template x-if="view === 'pets'">
+            <div>
+                <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                    <h2>Pets</h2>
+                    <select x-model="pets.selectedId" @change="loadPetCard()"
+                            x-show="(pets.list || []).length > 1"
+                            style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                        <template x-for="p in (pets.list || [])" :key="p.id">
+                            <option :value="p.id" x-text="p.name"></option>
+                        </template>
+                    </select>
+                    <button class="btn btn-sm" @click="window.print()" x-show="pets.card">Print / Export PDF</button>
+                </div>
+
+                <template x-if="(pets.list || []).length === 0">
+                    <div class="empty-state" style="padding:1rem;">
+                        <p style="font-size:0.85rem; color:var(--text-muted);">
+                            No pets on file. Add a subject with type "pet" or upload a vet document
+                            mentioning your pet's name.
+                        </p>
+                    </div>
+                </template>
+
+                <template x-if="pets.card">
+                    <div id="pet-card" style="background:var(--bg-card); padding:1.5rem; border-radius:8px; border:1px solid var(--border);">
+                        <!-- Header -->
+                        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
+                            <div style="font-size:2rem;">
+                                <span x-text="pets.card.profile?.species === 'dog' ? '🐕' : (pets.card.profile?.species === 'cat' ? '🐈' : '🐾')"></span>
+                            </div>
+                            <div style="flex:1;">
+                                <div style="font-size:1.4rem; font-weight:600;" x-text="pets.card.name"></div>
+                                <div style="font-size:0.85rem; color:var(--text-muted);">
+                                    <span x-text="pets.card.profile?.breed || ''"></span>
+                                    <span x-show="pets.card.profile?.sex" x-text="' · ' + pets.card.profile.sex"></span>
+                                    <span x-show="pets.card.profile?.neutered != null" x-text="pets.card.profile.neutered ? ' · neutered' : ' · intact'"></span>
+                                    <span x-show="petAge()" x-text="' · ' + petAge()"></span>
+                                </div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-size:0.75rem; color:var(--text-muted);">Weight</div>
+                                <div style="font-size:1.4rem; font-weight:600;"
+                                     x-text="pets.card.weight?.value != null ? pets.card.weight.value.toFixed(1) + ' lbs' : (pets.card.profile?.weight_current ? pets.card.profile.weight_current + ' lbs' : '—')"></div>
+                                <div style="font-size:0.7rem; color:var(--text-muted);"
+                                     x-text="pets.card.weight?.recorded_at ? formatDate(pets.card.weight.recorded_at) : ''"></div>
+                            </div>
+                        </div>
+
+                        <!-- Identification -->
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:0.5rem 1rem; padding:0.75rem 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); font-size:0.8rem;">
+                            <div x-show="pets.card.profile?.microchip"><strong>Microchip:</strong> <span x-text="pets.card.profile?.microchip"></span></div>
+                            <div x-show="pets.card.profile?.license_number"><strong>License:</strong> <span x-text="pets.card.profile?.license_number"></span></div>
+                            <div x-show="pets.card.profile?.license_expiration"
+                                 :style="isExpirationSoon(pets.card.profile.license_expiration, 60) ? 'color:var(--danger);' : ''">
+                                <strong>License expires:</strong> <span x-text="pets.card.profile?.license_expiration"></span>
+                            </div>
+                            <div x-show="pets.card.profile?.color"><strong>Color:</strong> <span x-text="pets.card.profile?.color"></span></div>
+                        </div>
+
+                        <!-- Allergies + dietary needs -->
+                        <div style="margin-top:1rem;" x-show="pets.card.profile?.allergies?.length || pets.card.profile?.dietary_needs">
+                            <h3 style="font-size:0.85rem; margin:0.5rem 0; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Allergies &amp; diet</h3>
+                            <div x-show="pets.card.profile?.allergies?.length" style="font-size:0.85rem;">
+                                <strong style="color:var(--danger);">Allergies:</strong>
+                                <span x-text="(pets.card.profile?.allergies || []).join(', ')"></span>
+                            </div>
+                            <div x-show="pets.card.profile?.dietary_needs" style="font-size:0.85rem;">
+                                <strong>Diet:</strong> <span x-text="pets.card.profile?.dietary_needs"></span>
+                            </div>
+                        </div>
+
+                        <!-- Vet -->
+                        <div style="margin-top:1rem;" x-show="(pets.card.vets || []).length > 0">
+                            <h3 style="font-size:0.85rem; margin:0.5rem 0; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Vet</h3>
+                            <template x-for="v in (pets.card.vets || [])" :key="v.id">
+                                <div style="font-size:0.85rem; margin-bottom:0.25rem;">
+                                    <strong x-text="v.data?.name || 'Vet'"></strong>
+                                    <span x-show="v.data?.practice" x-text="' · ' + v.data.practice"></span>
+                                    <span x-show="v.data?.phone" x-text="' · ' + v.data.phone"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Vaccinations -->
+                        <div style="margin-top:1rem;">
+                            <h3 style="font-size:0.85rem; margin:0.5rem 0; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Vaccinations</h3>
+                            <template x-if="(pets.card.vaccinations || []).length === 0">
+                                <div style="font-size:0.8rem; color:var(--text-muted);">No vaccinations on file.</div>
+                            </template>
+                            <template x-for="v in (pets.card.vaccinations || [])" :key="v.id">
+                                <div style="font-size:0.85rem; padding:0.3rem 0; border-bottom:1px dotted var(--border);"
+                                     :style="isExpirationPast(v.data?.next_due) ? 'color:var(--danger);' : ''">
+                                    <strong x-text="v.data?.name || 'Vaccine'"></strong>
+                                    <span x-show="v.data?.date_administered" x-text="' · given ' + v.data.date_administered"></span>
+                                    <span x-show="v.data?.next_due"
+                                          x-text="' · next due ' + v.data.next_due + (isExpirationPast(v.data.next_due) ? ' (overdue)' : '')"></span>
+                                    <span x-show="v.data?.required_for_boarding" class="badge"
+                                          style="background:var(--primary); color:#0d1117;">boarding</span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Medications -->
+                        <div style="margin-top:1rem;" x-show="(pets.card.medications || []).length > 0">
+                            <h3 style="font-size:0.85rem; margin:0.5rem 0; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Medications</h3>
+                            <template x-for="m in (pets.card.medications || [])" :key="m.id">
+                                <div style="font-size:0.85rem; padding:0.3rem 0;">
+                                    <strong x-text="m.data?.name"></strong>
+                                    <span x-show="m.data?.dose" x-text="' · ' + m.data.dose"></span>
+                                    <span x-show="m.data?.frequency" x-text="' · ' + m.data.frequency"></span>
+                                    <span x-show="m.data?.indication" style="color:var(--text-muted);"
+                                          x-text="' · for ' + m.data.indication"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Preventatives -->
+                        <div style="margin-top:1rem;" x-show="(pets.card.preventatives || []).length > 0">
+                            <h3 style="font-size:0.85rem; margin:0.5rem 0; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Preventatives</h3>
+                            <template x-for="p in (pets.card.preventatives || [])" :key="p.id">
+                                <div style="font-size:0.85rem; padding:0.3rem 0;">
+                                    <strong x-text="p.data?.product || p.data?.type"></strong>
+                                    <span x-show="p.data?.frequency" x-text="' · ' + p.data.frequency"></span>
+                                    <span x-show="p.data?.next_due" x-text="' · next ' + p.data.next_due"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Conditions -->
+                        <div style="margin-top:1rem;" x-show="(pets.card.conditions || []).length > 0">
+                            <h3 style="font-size:0.85rem; margin:0.5rem 0; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Conditions</h3>
+                            <template x-for="c in (pets.card.conditions || [])" :key="c.id">
+                                <div style="font-size:0.85rem; padding:0.3rem 0;">
+                                    <strong x-text="c.data?.name"></strong>
+                                    <span x-show="c.data?.diagnosed_date" x-text="' · ' + c.data.diagnosed_date"></span>
+                                    <span x-show="c.data?.management" style="color:var(--text-muted);"
+                                          x-text="' — ' + c.data.management"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Pending pet actions -->
+                        <div style="margin-top:1rem;" x-show="(pets.card.actions || []).length > 0">
+                            <h3 style="font-size:0.85rem; margin:0.5rem 0; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);">Upcoming</h3>
+                            <template x-for="a in (pets.card.actions || [])" :key="a.id">
+                                <div style="font-size:0.85rem; padding:0.3rem 0;">
+                                    <span x-text="a.title"></span>
+                                    <span x-show="a.due_date" style="color:var(--text-muted);"
+                                          x-text="' · ' + a.due_date"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
     </main>
 
     <!-- Upload Modal -->
@@ -1760,6 +1940,9 @@ function lifeos() {
         auto: null,
         home: { contractorFilter: '' },
 
+        // Pets (Phase 8)
+        pets: { list: [], selectedId: '', card: null },
+
         // Modals
         showUpload: false,
         showEditDoc: false,
@@ -1823,6 +2006,7 @@ function lifeos() {
             if (v === 'financial') this.loadFinancial();
             if (v === 'auto') this.loadAuto();
             if (v === 'home_dash') this.loadHome();
+            if (v === 'pets') this.loadPets();
         },
 
         async api(url, opts = {}) {
@@ -2184,6 +2368,70 @@ function lifeos() {
                 ((c.data?.trade || '') + ' ' + (c.data?.name || '') + ' ' + (c.data?.notes || ''))
                     .toLowerCase().includes(q)
             );
+        },
+
+        async loadPets() {
+            this.loading = true;
+            try {
+                if (!this.subjects?.length) await this.loadSubjects();
+                const pets = (this.subjects || []).filter((s) => s.type === 'pet');
+                this.pets.list = pets;
+                if (!this.pets.selectedId && pets.length) this.pets.selectedId = pets[0].id;
+                if (this.pets.selectedId) await this.loadPetCard();
+                else this.pets.card = null;
+            } catch (e) {
+                console.warn('loadPets failed', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadPetCard() {
+            const sid = this.pets.selectedId;
+            if (!sid) return;
+            const pet = (this.pets.list || []).find((p) => p.id === sid);
+            if (!pet) return;
+            const params = (obj) => Object.entries(obj).map(([k, v]) =>
+                encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
+            try {
+                const [vacc, meds, prevs, vets, conds, weight, actions] = await Promise.all([
+                    fetch('/api/records?record_type=pet_vaccination&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=pet_medication&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=preventative_schedule&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=vet_provider&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/records?record_type=pet_condition&subject_id=' + sid).then((r) => r.json()),
+                    fetch('/api/metrics/latest?' + params({ subject_id: sid, metric_type: 'pet_weight' })).then((r) => r.json()),
+                    fetch('/api/actions?domain=vet&status=pending&per_page=20').then((r) => r.json()),
+                ]);
+                this.pets.card = {
+                    name: pet.name,
+                    profile: pet.profile_data || {},
+                    vaccinations: (vacc.data || []).slice().sort((a, b) => {
+                        const ax = a.data?.next_due || '9999-12-31';
+                        const bx = b.data?.next_due || '9999-12-31';
+                        return ax.localeCompare(bx);
+                    }),
+                    medications: (meds.data || []).filter((m) => (m.data?.status || 'active') === 'active'),
+                    preventatives: prevs.data || [],
+                    vets: vets.data || [],
+                    conditions: (conds.data || []).filter((c) => (c.data?.status || 'active') === 'active'),
+                    weight: weight.data ? { value: weight.data.value_numeric, recorded_at: weight.data.recorded_at } : null,
+                    actions: (actions.data || []).filter((a) => a.subject_id === sid),
+                };
+            } catch (e) {
+                console.warn('loadPetCard failed', e);
+            }
+        },
+
+        petAge() {
+            const dob = this.pets.card?.profile?.date_of_birth;
+            if (!dob) return '';
+            const birth = new Date(dob);
+            const now = new Date();
+            let years = now.getFullYear() - birth.getFullYear();
+            const months = now.getMonth() - birth.getMonth() + (now.getDate() < birth.getDate() ? -1 : 0);
+            if (months < 0) years -= 1;
+            return years > 0 ? years + 'y' : Math.max(0, 12 + months) + ' mo';
         },
 
         async logMileage(vehicleId, mileage) {

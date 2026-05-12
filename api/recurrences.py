@@ -105,6 +105,29 @@ def _next_due_for(record_type: str, data: dict) -> Optional[date]:
                 return exp
         return None
 
+    if record_type == "pet_vaccination":
+        # Vaccination renewals — surface 60 days before next_due (and overdue).
+        d = _parse_date(data.get("next_due"))
+        if d:
+            lead = d - timedelta(days=60)
+            if today >= lead:
+                return d
+        return None
+
+    if record_type == "preventative_schedule":
+        # Flea/tick/heartworm — usually monthly. Surface as soon as due.
+        d = _parse_date(data.get("next_due"))
+        if d and (today - timedelta(days=30)) <= d <= (today + timedelta(days=60)):
+            return d
+        return None
+
+    if record_type == "pet_medication":
+        # Pet med refills, identical pattern to medication.refill_date.
+        d = _parse_date(data.get("refill_date"))
+        if d and (today - timedelta(days=14)) <= d <= (today + timedelta(days=60)):
+            return d
+        return None
+
     return None
 
 
@@ -124,6 +147,12 @@ def _action_title_for(record_type: str, data: dict, amount: Optional[float]) -> 
         return f"Vehicle: {svc}"
     if record_type == "vehicle":
         return f"Renew registration: {data.get('year') or ''} {data.get('make') or ''} {data.get('model') or ''}".strip()
+    if record_type == "pet_vaccination":
+        return f"Vaccination due: {data.get('name') or 'vaccine'}"
+    if record_type == "preventative_schedule":
+        return f"{(data.get('product') or data.get('type') or 'preventative').title()} due"
+    if record_type == "pet_medication":
+        return f"Refill (pet): {data.get('name') or 'medication'}"
     return data.get("name") or "Action"
 
 
@@ -135,6 +164,9 @@ _DOMAIN_FOR_RECORD_TYPE = {
     "home_maintenance_schedule": "home",
     "maintenance_schedule": "auto",
     "vehicle": "auto",
+    "pet_vaccination": "vet",
+    "preventative_schedule": "vet",
+    "pet_medication": "vet",
 }
 
 

@@ -238,7 +238,10 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                     rtype = sr["record_type"]
                     data = sr["data"] or {}
                     identity_key = None
-                    if rtype in ("medication", "provider", "condition"):
+                    if rtype in (
+                        "medication", "provider", "condition",
+                        "pet_medication", "vet_provider", "pet_condition",
+                    ):
                         identity_key = (data.get("name") or "").strip().lower() or None
 
                     record_id = None
@@ -276,11 +279,13 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                         record_id = new_row["id"]
 
                     # Recurring action item for known record types
-                    # (financial obligations, home/auto maintenance, registration renewals).
+                    # (financial obligations, home/auto maintenance, registration renewals,
+                    # pet vaccinations and preventatives).
                     if rtype in (
                         "credit_account", "loan", "recurring_expense",
                         "appliance", "home_maintenance_schedule",
                         "maintenance_schedule", "vehicle",
+                        "pet_vaccination", "preventative_schedule", "pet_medication",
                     ):
                         try:
                             from recurrences import ensure_recurring_action_item
