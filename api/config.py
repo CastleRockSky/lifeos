@@ -51,6 +51,18 @@ class Settings(BaseSettings):
     imap_max_message_size: int = 50 * 1024 * 1024  # 50 MB cap on raw email size
     imap_max_retries: int = 3
 
+    # Google Calendar sync (Phase 10)
+    # Enable once google_credentials_path holds OAuth tokens (from
+    # scripts/bootstrap_google_calendar.py).
+    google_calendar_enabled: bool = False
+    google_calendar_id: str = "primary"  # or a specific calendar ID for "LifeOS"
+    google_credentials_path: str = "/data/auth/google-calendar-tokens.json"
+    google_oauth_client_path: str = "/data/auth/google-oauth-client.json"
+    # Comma-separated; empty means all
+    google_calendar_domains: str = ""
+    google_calendar_event_prefix: str = "[LifeOS] "
+    google_calendar_link_base: str = ""  # e.g. https://lifeos.example.com
+
     class Config:
         env_file = ".env"
 

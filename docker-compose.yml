@@ -73,8 +73,16 @@ services:
       IMAP_POLL_INTERVAL: ${IMAP_POLL_INTERVAL:-120}
       IMAP_PROCESSED_LABEL: ${IMAP_PROCESSED_LABEL:-LifeOS/Processed}
       IMAP_FAILED_LABEL: ${IMAP_FAILED_LABEL:-LifeOS/Failed}
+      # Google Calendar sync (Phase 10)
+      GOOGLE_CALENDAR_ENABLED: ${GOOGLE_CALENDAR_ENABLED:-false}
+      GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID:-primary}
+      GOOGLE_CREDENTIALS_PATH: ${GOOGLE_CREDENTIALS_PATH:-/data/auth/google-calendar-tokens.json}
+      GOOGLE_OAUTH_CLIENT_PATH: ${GOOGLE_OAUTH_CLIENT_PATH:-/data/auth/google-oauth-client.json}
+      GOOGLE_CALENDAR_DOMAINS: ${GOOGLE_CALENDAR_DOMAINS:-}
+      GOOGLE_CALENDAR_LINK_BASE: ${GOOGLE_CALENDAR_LINK_BASE:-}
     volumes:
       - ${DATA_PATH:-/srv/lifeos}/documents:/data/documents
+      - ${DATA_PATH:-/srv/lifeos}/auth:/data/auth
     ports:
       - "127.0.0.1:8100:8000"
     deploy:

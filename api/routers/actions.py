@@ -5,7 +5,7 @@ routers/actions.py — Action items CRUD.
 import uuid
 from datetime import date, timedelta, datetime, timezone
 
-from fastapi import APIRouter, Query, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Query, HTTPException, Request
 
 from database import get_pool
 from helpers import get_user_email, audit_log
@@ -117,7 +117,7 @@ async def overdue_actions():
 
 
 @router.post("")
-async def create_action(body: ActionItemCreate, request: Request):
+async def create_action(body: ActionItemCreate, request: Request, background_tasks: BackgroundTasks):
     """Manually create an action item."""
     pool = get_pool()
 
@@ -139,11 +139,15 @@ async def create_action(body: ActionItemCreate, request: Request):
 
     await audit_log("create", get_user_email(request), "action_items", str(row["id"]))
 
+    # Mirror to Google Calendar (no-op if disabled).
+    background_tasks.add_task(_sync_calendar_for_action, str(row["id"]), "create")
+
     return {"data": _action_dict(row)}
 
 
 @router.patch("/{action_id}")
-async def update_action(action_id: str, body: ActionItemUpdate, request: Request):
+async def update_action(action_id: str, body: ActionItemUpdate, request: Request,
+                        background_tasks: BackgroundTasks):
     """Update an action item (status, due_date, notes, etc.)."""
     pool = get_pool()
     aid = uuid.UUID(action_id)
@@ -208,7 +212,63 @@ async def update_action(action_id: str, body: ActionItemUpdate, request: Request
                 )
 
     await audit_log("update", get_user_email(request), "action_items", action_id)
+
+    # Mirror status to Google Calendar.
+    if body.status in ("completed", "dismissed"):
+        background_tasks.add_task(_sync_calendar_for_action, action_id, "delete")
+    else:
+        background_tasks.add_task(_sync_calendar_for_action, action_id, "update")
+
     return {"data": {"id": action_id, "updated": True}}
+
+
+async def _sync_calendar_for_action(action_id: str, op: str):
+    """Background task: re-read the action and apply the right calendar op."""
+    from calendar_sync import sync_action_create, sync_action_update, sync_action_delete
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT a.*, s.name AS subject_name
+            FROM action_items a
+            LEFT JOIN subjects s ON s.id = a.subject_id
+            WHERE a.id = $1
+        """, uuid.UUID(action_id))
+    if not row:
+        return
+
+    action = {
+        "id": str(row["id"]),
+        "title": row["title"],
+        "description": row["description"],
+        "due_date": row["due_date"],
+        "priority": row["priority"],
+        "domain": row["domain"],
+        "subject_name": row.get("subject_name"),
+        "recurrence_rule": row["recurrence_rule"],
+    }
+    event_id = row["calendar_event_id"]
+
+    if op == "delete" and event_id:
+        await sync_action_delete(event_id)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE action_items SET calendar_event_id = NULL WHERE id = $1",
+                uuid.UUID(action_id),
+            )
+        return
+
+    if op == "create":
+        new_id = await sync_action_create(action)
+    else:
+        new_id = await sync_action_update(action, event_id)
+
+    if new_id and new_id != event_id:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE action_items SET calendar_event_id = $1 WHERE id = $2",
+                new_id, uuid.UUID(action_id),
+            )
 
 
 def _action_dict(r) -> dict:

@@ -82,6 +82,13 @@ async def get_stats():
     }
 
 
+@router.get("/calendar/status")
+async def calendar_status():
+    """Google Calendar sync status (Phase 10)."""
+    from calendar_sync import status
+    return {"data": status()}
+
+
 @router.get("/inbox/status")
 async def inbox_status():
     """Return inbox watcher stats."""
