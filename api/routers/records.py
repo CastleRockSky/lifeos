@@ -108,8 +108,12 @@ async def create_record(payload: RecordCreate, request: Request):
             payload.next_action_description,
         )
 
-        # Auto-generate the next pending action item for recurring financial records.
-        if payload.record_type in ("credit_account", "loan", "recurring_expense"):
+        # Auto-generate the next pending action item for recurring records.
+        if payload.record_type in (
+            "credit_account", "loan", "recurring_expense",
+            "appliance", "home_maintenance_schedule",
+            "maintenance_schedule", "vehicle",
+        ):
             from recurrences import ensure_recurring_action_item
             await ensure_recurring_action_item(
                 conn,

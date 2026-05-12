@@ -451,6 +451,12 @@
             <button class="nav-item" :class="{ active: view === 'financial' }" @click="navigate('financial')">
                 Financial
             </button>
+            <button class="nav-item" :class="{ active: view === 'auto' }" @click="navigate('auto')">
+                Auto
+            </button>
+            <button class="nav-item" :class="{ active: view === 'home_dash' }" @click="navigate('home_dash')">
+                Home
+            </button>
         </div>
 
         <div class="sidebar-section">
@@ -1315,6 +1321,201 @@
             </div>
         </template>
 
+        <!-- Auto Dashboard -->
+        <template x-if="view === 'auto'">
+            <div>
+                <div class="page-header"><h2>Auto</h2></div>
+
+                <template x-if="(auto?.vehicles || []).length === 0">
+                    <div class="empty-state" style="padding:1rem;">
+                        <p style="font-size:0.85rem; color:var(--text-muted);">
+                            No vehicles on file yet. Upload a registration or insurance card to get started.
+                        </p>
+                    </div>
+                </template>
+
+                <template x-for="v in (auto?.vehicles || [])" :key="v.id">
+                    <div class="action-item" style="display:block;">
+                        <div style="display:flex; align-items:start; gap:0.75rem;">
+                            <div style="flex:1;">
+                                <div class="action-item-title">
+                                    <span x-text="(v.data?.year || '') + ' ' + (v.data?.make || '') + ' ' + (v.data?.model || '')"></span>
+                                    <span x-show="v.data?.trim" style="color:var(--text-muted); font-weight:normal;"
+                                          x-text="' ' + v.data.trim"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span x-show="v.data?.current_mileage != null"
+                                          x-text="v.data.current_mileage.toLocaleString() + ' mi'"></span>
+                                    <span x-show="v.data?.license_plate" x-text="' · ' + v.data.license_plate"></span>
+                                    <span x-show="v.data?.color" x-text="' · ' + v.data.color"></span>
+                                    <span x-show="v.data?.registration_expiration"
+                                          :class="{ 'badge-priority-high': isExpirationSoon(v.data.registration_expiration, 60) }"
+                                          x-text="' · reg expires ' + v.data.registration_expiration"></span>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:0.4rem; align-items:center;">
+                                <input type="number" x-model.number="v._mileageInput"
+                                       :placeholder="'New mi (last: ' + (v.data?.current_mileage || '?') + ')'"
+                                       style="width:140px; font-size:0.85rem;">
+                                <button class="btn btn-xs btn-primary"
+                                        @click="logMileage(v.id, v._mileageInput); v._mileageInput = ''">
+                                    Log
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Upcoming maintenance -->
+                <div style="margin-top:1.5rem;">
+                    <div class="page-header"><h2>Upcoming maintenance</h2></div>
+                    <template x-if="(auto?.actions || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">No upcoming maintenance.</p>
+                        </div>
+                    </template>
+                    <template x-for="a in (auto?.actions || [])" :key="a.id">
+                        <div class="action-item" :class="{ overdue: a.due_date && new Date(a.due_date) < new Date() }">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="a.title"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="a.due_date" x-text="formatDate(a.due_date)"></span>
+                                    <span x-show="a.description" style="color:var(--text-muted);"
+                                          x-text="' · ' + a.description"></span>
+                                    <span class="badge" x-text="a.priority"></span>
+                                </div>
+                            </div>
+                            <div class="action-item-actions">
+                                <button class="btn btn-xs btn-success" @click="updateAction(a.id, 'completed')">Done</button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Service history -->
+                <div style="margin-top:1.5rem;" x-show="(auto?.serviceHistory || []).length > 0">
+                    <div class="page-header"><h2>Service history</h2></div>
+                    <template x-for="s in (auto?.serviceHistory || [])" :key="s.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="s.data?.service_type || 'Service'"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="s.data?.date" x-text="s.data.date"></span>
+                                    <span x-show="s.data?.mileage != null" x-text="' · ' + s.data.mileage.toLocaleString() + ' mi'"></span>
+                                    <span x-show="s.data?.provider" x-text="' · ' + s.data.provider"></span>
+                                    <span x-show="s.data?.cost != null" x-text="' · $' + Number(s.data.cost).toFixed(2)"></span>
+                                </div>
+                            </div>
+                            <div class="action-item-actions" x-show="s.source_document_id">
+                                <a class="btn btn-xs" :href="'/api/documents/' + s.source_document_id + '/file'" target="_blank">Doc</a>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
+        <!-- Home Dashboard -->
+        <template x-if="view === 'home_dash'">
+            <div>
+                <div class="page-header"><h2>Home</h2></div>
+
+                <template x-for="p in (home?.properties || [])" :key="p.id">
+                    <div class="action-item">
+                        <div class="action-item-content">
+                            <div class="action-item-title" x-text="p.data?.address || 'Property'"></div>
+                            <div class="action-item-meta">
+                                <span x-show="p.data?.type" x-text="(p.data.type || '').replace('_', ' ')"></span>
+                                <span x-show="p.data?.year_built" x-text="' · built ' + p.data.year_built"></span>
+                                <span x-show="p.data?.sqft" x-text="' · ' + p.data.sqft + ' sqft'"></span>
+                                <span x-show="p.data?.bedrooms != null" x-text="' · ' + p.data.bedrooms + 'bd/' + (p.data.bathrooms || '?') + 'ba'"></span>
+                                <span x-show="p.data?.hoa" class="badge" x-text="'HOA $' + (p.data.hoa_monthly || 0)"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Warranty tracker -->
+                <div style="margin-top:1.5rem;">
+                    <div class="page-header"><h2>Appliances &amp; warranties</h2></div>
+                    <template x-if="(home?.appliances || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">No appliances on file.</p>
+                        </div>
+                    </template>
+                    <template x-for="a in (home?.appliances || [])" :key="a.id">
+                        <div class="action-item" :class="{ overdue: isExpirationPast(a.data?.warranty_expiration) }">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="a.data?.name || 'Appliance'"></span>
+                                    <span x-show="a.data?.brand || a.data?.model" style="color:var(--text-muted); font-weight:normal;"
+                                          x-text="' · ' + [a.data?.brand, a.data?.model].filter(Boolean).join(' ')"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span x-show="a.data?.warranty_expiration"
+                                          :class="{ 'badge-priority-high': isExpirationSoon(a.data.warranty_expiration, 90) }"
+                                          x-text="'Warranty: ' + a.data.warranty_expiration + (isExpirationPast(a.data.warranty_expiration) ? ' (expired)' : '')"></span>
+                                    <span x-show="a.data?.next_service_due"
+                                          x-text="' · service ' + a.data.next_service_due"></span>
+                                    <span x-show="a.data?.location" x-text="' · ' + a.data.location"></span>
+                                </div>
+                                <div x-show="a.data?.notes" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;"
+                                     x-text="a.data.notes"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Home maintenance -->
+                <div style="margin-top:1.5rem;" x-show="(home?.maintenance || []).length > 0">
+                    <div class="page-header"><h2>Home maintenance</h2></div>
+                    <template x-for="m in (home?.maintenance || [])" :key="m.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="m.data?.task || 'Task'"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="m.data?.next_due" x-text="'Next: ' + m.data.next_due"></span>
+                                    <span x-show="m.data?.interval_months" x-text="' · every ' + m.data.interval_months + ' mo'"></span>
+                                    <span x-show="m.data?.estimated_cost != null" x-text="' · ~$' + m.data.estimated_cost"></span>
+                                    <span class="badge" x-show="m.data?.diy">DIY</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Contractor directory -->
+                <div style="margin-top:1.5rem;" x-show="(home?.contractors || []).length > 0">
+                    <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                        <h2>Contractors</h2>
+                        <input type="text" x-model="home.contractorFilter" placeholder="Filter by trade..."
+                               style="font-size:0.85rem; padding:0.3rem 0.6rem;">
+                    </div>
+                    <template x-for="c in filteredContractors()" :key="c.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="c.data?.name || 'Contractor'"></span>
+                                    <span x-show="c.data?.rating" style="color:var(--warning); font-weight:normal;"
+                                          x-text="' · ' + '★'.repeat(c.data.rating)"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="c.data?.trade || ''"></span>
+                                    <span x-show="c.data?.phone" x-text="' · ' + c.data.phone"></span>
+                                    <span x-show="c.data?.email" x-text="' · ' + c.data.email"></span>
+                                    <span x-show="c.data?.last_used" x-text="' · last used ' + c.data.last_used"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
     </main>
 
     <!-- Upload Modal -->
@@ -1555,6 +1756,10 @@ function lifeos() {
         // Financial dashboard (Phase 6)
         financial: null,
 
+        // Auto + Home dashboards (Phase 7)
+        auto: null,
+        home: { contractorFilter: '' },
+
         // Modals
         showUpload: false,
         showEditDoc: false,
@@ -1616,6 +1821,8 @@ function lifeos() {
             if (v === 'review') this.loadReviewQueue();
             if (v === 'medical') this.loadMedical();
             if (v === 'financial') this.loadFinancial();
+            if (v === 'auto') this.loadAuto();
+            if (v === 'home_dash') this.loadHome();
         },
 
         async api(url, opts = {}) {
@@ -1909,6 +2116,109 @@ function lifeos() {
             } finally {
                 this.loading = false;
             }
+        },
+
+        async loadAuto() {
+            this.loading = true;
+            try {
+                if (!this.subjects?.length) await this.loadSubjects();
+                const subjectsParam = ''; // vehicles can belong to non-primary subjects too
+                const [vehicles, schedules, services, actions] = await Promise.all([
+                    fetch('/api/records?record_type=vehicle' + subjectsParam).then((r) => r.json()),
+                    fetch('/api/records?record_type=maintenance_schedule' + subjectsParam).then((r) => r.json()),
+                    fetch('/api/records?record_type=service_record&per_page=20').then((r) => r.json()),
+                    fetch('/api/actions?domain=auto&status=pending&per_page=20').then((r) => r.json()),
+                ]);
+                this.auto = {
+                    vehicles: (vehicles.data || []).map((v) => ({ ...v, _mileageInput: '' })),
+                    schedules: schedules.data || [],
+                    serviceHistory: services.data || [],
+                    actions: actions.data || [],
+                };
+            } catch (e) {
+                console.warn('loadAuto failed', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadHome() {
+            this.loading = true;
+            try {
+                if (!this.subjects?.length) await this.loadSubjects();
+                const [props, appliances, contractors, maintenance] = await Promise.all([
+                    fetch('/api/records?record_type=property').then((r) => r.json()),
+                    fetch('/api/records?record_type=appliance').then((r) => r.json()),
+                    fetch('/api/records?record_type=contractor').then((r) => r.json()),
+                    fetch('/api/records?record_type=home_maintenance_schedule').then((r) => r.json()),
+                ]);
+                // Sort appliances by warranty expiration (soonest/expired first)
+                const apps = (appliances.data || []).slice().sort((a, b) => {
+                    const ax = a.data?.warranty_expiration || '9999-12-31';
+                    const bx = b.data?.warranty_expiration || '9999-12-31';
+                    return ax.localeCompare(bx);
+                });
+                this.home = {
+                    properties: props.data || [],
+                    appliances: apps,
+                    contractors: contractors.data || [],
+                    maintenance: (maintenance.data || []).slice().sort((a, b) => {
+                        const ax = a.data?.next_due || '9999-12-31';
+                        const bx = b.data?.next_due || '9999-12-31';
+                        return ax.localeCompare(bx);
+                    }),
+                    contractorFilter: this.home?.contractorFilter || '',
+                };
+            } catch (e) {
+                console.warn('loadHome failed', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        filteredContractors() {
+            const all = this.home?.contractors || [];
+            const q = (this.home?.contractorFilter || '').toLowerCase().trim();
+            if (!q) return all;
+            return all.filter((c) =>
+                ((c.data?.trade || '') + ' ' + (c.data?.name || '') + ' ' + (c.data?.notes || ''))
+                    .toLowerCase().includes(q)
+            );
+        },
+
+        async logMileage(vehicleId, mileage) {
+            const m = parseInt(mileage, 10);
+            if (!Number.isFinite(m) || m <= 0) {
+                this.toast('Enter a valid mileage', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/vehicles/' + vehicleId + '/mileage', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mileage: m }),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || err.message || 'Update failed');
+                }
+                this.toast('Mileage logged');
+                this.loadAuto();
+            } catch (e) {
+                this.toast(e.message, 'error');
+            }
+        },
+
+        isExpirationSoon(dateStr, days) {
+            if (!dateStr) return false;
+            const d = new Date(dateStr);
+            const diff = (d - new Date()) / 86400000;
+            return diff >= 0 && diff <= days;
+        },
+
+        isExpirationPast(dateStr) {
+            if (!dateStr) return false;
+            return new Date(dateStr) < new Date();
         },
 
         upcoming7dTotal() {

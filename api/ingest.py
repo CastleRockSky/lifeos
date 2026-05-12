@@ -275,8 +275,13 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                             json.dumps(data, default=str), uuid.UUID(doc_id))
                         record_id = new_row["id"]
 
-                    # Recurring action item for financial obligations.
-                    if rtype in ("credit_account", "loan", "recurring_expense"):
+                    # Recurring action item for known record types
+                    # (financial obligations, home/auto maintenance, registration renewals).
+                    if rtype in (
+                        "credit_account", "loan", "recurring_expense",
+                        "appliance", "home_maintenance_schedule",
+                        "maintenance_schedule", "vehicle",
+                    ):
                         try:
                             from recurrences import ensure_recurring_action_item
                             await ensure_recurring_action_item(

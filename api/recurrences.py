@@ -41,6 +41,17 @@ def _next_monthly_due(due_day: int, today: Optional[date] = None) -> date:
     return candidate
 
 
+def _parse_date(value) -> Optional[date]:
+    if not value:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
 def _next_due_for(record_type: str, data: dict) -> Optional[date]:
     """Inspect a record's `data` dict and return the next due date, if any."""
     if not isinstance(data, dict):
@@ -49,21 +60,10 @@ def _next_due_for(record_type: str, data: dict) -> Optional[date]:
     today = date.today()
 
     if record_type == "credit_account":
-        # Prefer an explicit upcoming payment_due_date if it's still in the
-        # future; otherwise no recurrence info available.
-        raw = data.get("payment_due_date")
-        if raw:
-            try:
-                d = date.fromisoformat(str(raw))
-                if d >= today:
-                    return d
-            except ValueError:
-                pass
-        return None
+        d = _parse_date(data.get("payment_due_date"))
+        return d if (d and d >= today) else None
 
     if record_type == "loan":
-        # Prefer specific payment_due_day; fall back to a "1st of next month"
-        # heuristic only if monthly_payment is set (so we know it recurs).
         day = data.get("payment_due_day")
         if isinstance(day, int) and 1 <= day <= 31:
             return _next_monthly_due(day, today)
@@ -74,27 +74,68 @@ def _next_due_for(record_type: str, data: dict) -> Optional[date]:
         day = data.get("due_day")
         if freq == "monthly" and isinstance(day, int) and 1 <= day <= 31:
             return _next_monthly_due(day, today)
-        # Quarterly/yearly omitted for now — AI will set due_day for monthly
-        # cases, which covers most real-world recurring expenses.
+        return None
+
+    if record_type == "appliance":
+        # Service due is informational; only generate an action item if it's
+        # in the next 90 days or already overdue (within 90 days back).
+        d = _parse_date(data.get("next_service_due"))
+        if d and (today - timedelta(days=90)) <= d <= (today + timedelta(days=90)):
+            return d
+        return None
+
+    if record_type == "home_maintenance_schedule":
+        d = _parse_date(data.get("next_due"))
+        if d and (today - timedelta(days=30)) <= d <= (today + timedelta(days=120)):
+            return d
+        return None
+
+    if record_type == "maintenance_schedule":
+        d = _parse_date(data.get("next_due_date"))
+        if d and (today - timedelta(days=30)) <= d <= (today + timedelta(days=120)):
+            return d
+        return None
+
+    if record_type == "vehicle":
+        # Registration renewal action item, 60 days before expiration.
+        exp = _parse_date(data.get("registration_expiration"))
+        if exp:
+            lead = exp - timedelta(days=60)
+            if today >= lead:
+                return exp
         return None
 
     return None
 
 
 def _action_title_for(record_type: str, data: dict, amount: Optional[float]) -> str:
-    name = (
-        data.get("name")
-        or data.get("creditor")
-        or data.get("lender")
-        or "Payment"
-    )
     if record_type == "credit_account":
-        return f"Pay {name}"
+        return f"Pay {data.get('creditor') or 'credit card'}"
     if record_type == "loan":
-        return f"Loan payment: {name}"
+        return f"Loan payment: {data.get('lender') or 'loan'}"
     if record_type == "recurring_expense":
-        return f"{name} due"
-    return name
+        return f"{data.get('name') or 'expense'} due"
+    if record_type == "appliance":
+        return f"Service: {data.get('name') or 'appliance'}"
+    if record_type == "home_maintenance_schedule":
+        return data.get("task") or "Home maintenance"
+    if record_type == "maintenance_schedule":
+        svc = data.get("service_type") or "Maintenance"
+        return f"Vehicle: {svc}"
+    if record_type == "vehicle":
+        return f"Renew registration: {data.get('year') or ''} {data.get('make') or ''} {data.get('model') or ''}".strip()
+    return data.get("name") or "Action"
+
+
+_DOMAIN_FOR_RECORD_TYPE = {
+    "credit_account": "financial",
+    "loan": "financial",
+    "recurring_expense": "financial",
+    "appliance": "home",
+    "home_maintenance_schedule": "home",
+    "maintenance_schedule": "auto",
+    "vehicle": "auto",
+}
 
 
 async def ensure_recurring_action_item(
@@ -150,20 +191,37 @@ async def ensure_recurring_action_item(
         description_parts.append("(autopay)")
     description = " ".join(description_parts) or None
 
+    domain = _DOMAIN_FOR_RECORD_TYPE.get(record_type)
+    recurrence_rule = None
+    if record_type in ("loan", "recurring_expense"):
+        recurrence_rule = "monthly"
+    elif record_type in ("appliance", "home_maintenance_schedule", "maintenance_schedule"):
+        # Recur via the source record's interval (caller updates last_completed
+        # / last_service after the action is marked done, so the next call to
+        # this function will compute a fresh due date).
+        recurrence_rule = "interval"
+
+    # Action priority bumps when something is overdue.
+    priority = "medium"
+    if next_due < today:
+        priority = "high"
+
     new_id = await conn.fetchval("""
         INSERT INTO action_items
             (domain, subject_id, title, description, due_date,
              source_type, source_document_id, source_record_id,
              priority, recurrence_rule)
-        VALUES ('financial', $1, $2, $3, $4, 'recurring', $5, $6, 'medium', $7)
+        VALUES ($1, $2, $3, $4, $5, 'recurring', $6, $7, $8, $9)
         RETURNING id
     """,
+        domain,
         subject_id,
         title,
         description,
         next_due,
         source_document_id,
         record_id,
-        "monthly" if record_type in ("loan", "recurring_expense") else None,
+        priority,
+        recurrence_rule,
     )
     return new_id

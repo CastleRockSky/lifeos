@@ -21,7 +21,7 @@ from constants import DOMAINS, CATEGORIES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_PROMPT_VERSION = 4
+CURRENT_PROMPT_VERSION = 5
 
 ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. Analyze the document and return structured JSON.
 
@@ -91,6 +91,27 @@ Supported record_type values and their data shapes:
 
 - **tax_item** (from IRS notices, estimated-tax voucher reminders, tax filing confirmations):
   `{"tax_year": 2025, "item_type": "deadline", "description": "Q1 Estimated Tax Payment", "due_date": "2025-04-15", "amount": 2500, "status": "pending", "notes": "Federal + Colorado state"}`
+
+- **vehicle** (from registrations, titles, purchase agreements, insurance cards):
+  `{"year": 2023, "make": "Toyota", "model": "Tacoma", "trim": "TRD Off-Road", "vin": "JTXXX...", "license_plate": "ABC-1234", "color": "Lunar Rock", "purchase_date": "2023-06-15", "purchase_price": 42000, "current_mileage": 28500, "registration_expiration": "2025-12-31", "notes": null}`
+
+- **service_record** (from service receipts, maintenance invoices — also emit `mileage` metric when present):
+  `{"vehicle_record_id": null, "date": "2025-01-15", "mileage": 26000, "service_type": "Oil Change", "provider": "Toyota of Castle Rock", "cost": 72.50, "parts": ["Oil filter", "5qt 0W-20 synthetic"], "notes": "Tire rotation included"}`
+
+- **maintenance_schedule** (from owner's manual extracts, service interval guides — usually a follow-up to a service_record):
+  `{"vehicle_record_id": null, "service_type": "Oil Change", "interval_miles": 5000, "interval_months": 6, "last_service_date": "2025-01-15", "last_service_mileage": 26000, "estimated_cost": 75, "notes": "Full synthetic 0W-20"}`
+
+- **property** (from mortgage agreements, property tax bills, deed documents):
+  `{"address": "123 Main St, Castle Rock, CO 80104", "type": "single_family", "year_built": 2018, "sqft": 2400, "bedrooms": 4, "bathrooms": 3, "hoa": true, "hoa_monthly": 75, "notes": null}`
+
+- **appliance** (from appliance purchase receipts, warranty registrations, service records):
+  `{"name": "HVAC System", "brand": "Lennox", "model": "XC21", "serial": "XXXX", "install_date": "2018-03-15", "warranty_expiration": "2028-03-15", "last_service": "2024-10-15", "service_interval_months": 12, "next_service_due": "2025-10-15", "notes": "Filter size: 20x25x4"}`
+
+- **contractor** (from contractor invoices, estimates — name + trade are the key fields):
+  `{"name": "Mike's Plumbing", "trade": "plumbing", "phone": "303-555-0200", "email": "mike@mikesplumbing.com", "license_number": null, "last_used": "2024-08-10", "notes": "Used for water heater install"}`
+
+- **home_maintenance_schedule** (from owner-tracked recurring tasks, often paired with appliance):
+  `{"task": "Replace HVAC filter", "interval_months": 3, "last_completed": "2025-01-15", "next_due": "2025-04-15", "estimated_cost": 25, "diy": true, "notes": "20x25x4 MERV 11 from Amazon"}`
 
 Rules:
 - Only extract records whose subject is genuinely the document's subject (skip records about other people mentioned in passing).
