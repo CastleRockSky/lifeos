@@ -36,6 +36,33 @@ if [ ! -x "$BACKUP_SCRIPT" ]; then
     exit 1
 fi
 
+# Surface Azure env vars from .env so we can decide whether to install azcopy
+if [ -f "$REPO_DIR/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$REPO_DIR/.env"
+    set +a
+fi
+
+if [ -n "${AZURE_STORAGE_ACCOUNT:-}" ] && [ -n "${AZURE_CONTAINER:-}" ] && [ -n "${AZURE_SAS_TOKEN:-}" ]; then
+    AZURE_CONFIGURED=1
+else
+    AZURE_CONFIGURED=0
+fi
+
+if [ "$AZURE_CONFIGURED" = "1" ] && ! command -v azcopy >/dev/null 2>&1; then
+    echo "[0/4] Installing azcopy (Azure backup upload tool)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl >/dev/null
+    TMPDIR_DL="$(mktemp -d)"
+    trap 'rm -rf "$TMPDIR_DL"' EXIT
+    curl -fsSL "https://aka.ms/downloadazcopy-v10-linux" -o "$TMPDIR_DL/azcopy.tar.gz"
+    tar xzf "$TMPDIR_DL/azcopy.tar.gz" -C "$TMPDIR_DL"
+    install -m 0755 "$TMPDIR_DL"/azcopy_linux_*/azcopy /usr/local/bin/azcopy
+    rm -rf "$TMPDIR_DL"
+    trap - EXIT
+    echo "       Installed: $(azcopy --version 2>&1 | head -1)"
+fi
+
 echo "[1/4] Installing /etc/cron.d/lifeos-backup..."
 install -m 0644 -o root -g root "$CRON_SRC" /etc/cron.d/lifeos-backup
 # Cron's run-parts ignores files with execute bit or with dots in the name
@@ -70,6 +97,12 @@ NEXT_RUN="$(date -d 'tomorrow 03:00' '+%a %Y-%m-%d %H:%M %Z')"
 LATEST="$(ls -1t ${DATA_PATH:-/srv/lifeos}/backups/lifeos-*.tar.gz 2>/dev/null | head -1 || true)"
 LATEST_SIZE="$(du -h "$LATEST" 2>/dev/null | cut -f1 || echo '?')"
 
+if [ "$AZURE_CONFIGURED" = "1" ]; then
+    AZURE_LINE="Off-site:    Azure Blob → ${AZURE_STORAGE_ACCOUNT}/${AZURE_CONTAINER}"
+else
+    AZURE_LINE="Off-site:    not configured (set AZURE_STORAGE_ACCOUNT/AZURE_CONTAINER/AZURE_SAS_TOKEN in .env)"
+fi
+
 cat <<EOF
 
 ==============================================
@@ -81,6 +114,7 @@ Cron file:   /etc/cron.d/lifeos-backup
 Log file:    /var/log/lifeos-backup.log (weekly rotation, 4 kept)
 Backup dir:  ${DATA_PATH:-/srv/lifeos}/backups/
 Retention:   14 most recent tarballs (override with RETAIN_COUNT)
+$AZURE_LINE
 
 Most recent backup (from the smoke test):
   $LATEST ($LATEST_SIZE)
