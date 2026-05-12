@@ -356,9 +356,10 @@ def _extract_token(request: Request) -> Optional[str]:
 
 
 async def auth_middleware(request: Request, call_next):
-    # Health probe path is open
+    # Health probe path bypasses auth so docker-compose healthchecks +
+    # operators can quickly diagnose configuration without a key.
     if request.url.path == "/health":
-        return JSONResponse({"status": "ok", "lifeos_api": LIFEOS_API_URL})
+        return await call_next(request)
     if not MCP_AGENT_KEY:
         return JSONResponse(
             {"error": "MCP_AGENT_KEY not configured on the server"},
