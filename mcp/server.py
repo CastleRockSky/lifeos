@@ -15,6 +15,7 @@ Auth: every inbound request must carry `Authorization: Bearer <key>` or
 """
 
 import base64
+import contextlib
 import json
 import logging
 import os
@@ -429,16 +430,23 @@ if __name__ == "__main__":
             "auth_configured": bool(MCP_AGENT_KEY),
         })
 
-    # Two-route app: /health (open) + everything else (mounted MCP, auth-gated).
-    # Routes-based composition avoids the slash-redirect problem that comes
-    # with app.mount("/", inner): inner's own /mcp routes (with both slash
-    # variants) are reachable directly.
+    # FastMCP's app has its own lifespan that initializes the streamable-HTTP
+    # session manager's task group. Starlette does NOT run a mounted sub-app's
+    # lifespan automatically — so without this, the first request hits an
+    # uninitialized session manager and 500s with "Task group is not
+    # initialized." Re-enter the inner lifespan from our outer lifespan.
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        async with inner.router.lifespan_context(inner):
+            yield
+
     base = Starlette(
         debug=False,
         routes=[
             Route("/health", health),
             Mount("/", app=inner),
         ],
+        lifespan=lifespan,
     )
     app = AuthMiddleware(base)
 
