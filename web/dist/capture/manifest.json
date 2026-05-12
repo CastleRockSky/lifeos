@@ -1,0 +1,19 @@
+{
+    "name": "LifeOS Capture",
+    "short_name": "Capture",
+    "description": "Snap and file documents into LifeOS.",
+    "start_url": "/capture/",
+    "scope": "/capture/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#0d1117",
+    "theme_color": "#0d1117",
+    "icons": [
+        {
+            "src": "icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ]
+}

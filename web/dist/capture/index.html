@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0d1117">
+    <title>LifeOS Capture</title>
+    <link rel="manifest" href="/capture/manifest.json">
+    <link rel="icon" type="image/svg+xml" href="/capture/icon.svg">
+    <link rel="apple-touch-icon" href="/capture/icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Capture">
+
+    <style>
+        :root {
+            --bg: #0d1117;
+            --bg-card: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-muted: #8b949e;
+            --primary: #58a6ff;
+            --success: #3fb950;
+            --danger: #f85149;
+            --warning: #d29922;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            min-height: 100vh;
+            min-height: 100dvh;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                     env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        header h1 { font-size: 1rem; margin: 0; font-weight: 600; }
+        header a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+
+        .camera-wrap {
+            position: relative;
+            background: #000;
+            aspect-ratio: 3 / 4;
+            width: 100%;
+            overflow: hidden;
+        }
+        .camera-wrap video,
+        .camera-wrap canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .camera-error {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            background: rgba(0,0,0,0.6);
+            font-size: 0.9rem;
+        }
+        .flash {
+            position: absolute;
+            inset: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s;
+        }
+        .flash.on { opacity: 0.65; }
+
+        .controls {
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .row { display: flex; gap: 0.5rem; align-items: center; }
+        .row.center { justify-content: center; }
+
+        select, button, input {
+            font-family: inherit;
+            font-size: 0.95rem;
+            color: var(--text);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.6rem 0.9rem;
+        }
+        select { width: 100%; }
+
+        .btn-capture {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: white;
+            border: 4px solid var(--bg-card);
+            box-shadow: 0 0 0 3px white;
+            position: relative;
+        }
+        .btn-capture:active { background: #ddd; }
+        .btn-capture:disabled { opacity: 0.4; }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #0d1117;
+            border: none;
+            font-weight: 600;
+        }
+        .btn-primary:disabled { opacity: 0.5; }
+        .btn-ghost { background: transparent; border: 1px solid var(--border); }
+        .btn-danger { background: var(--danger); color: white; border: none; }
+
+        .pages {
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            padding: 0.5rem 1rem;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+        }
+        .page-thumb {
+            position: relative;
+            flex-shrink: 0;
+            width: 80px;
+            height: 100px;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .page-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .page-thumb .num {
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            font-size: 0.7rem;
+            background: rgba(0,0,0,0.7);
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+        .page-thumb .rm {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.75);
+            color: white;
+            border: none;
+            padding: 0;
+            font-size: 0.85rem;
+            line-height: 1;
+        }
+
+        .recent {
+            border-top: 1px solid var(--border);
+            padding: 0.75rem 1rem;
+            margin-top: 0.5rem;
+        }
+        .recent h2 {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin: 0 0 0.5rem 0;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .recent-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+        .recent-item:last-child { border-bottom: none; }
+        .recent-item .icon { font-size: 1.1rem; }
+        .recent-item .body { flex: 1; min-width: 0; }
+        .recent-item .body div:first-child {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .recent-item .meta { color: var(--text-muted); font-size: 0.75rem; }
+        .badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: var(--bg-card);
+            color: var(--text-muted);
+        }
+        .badge.ok { background: var(--success); color: white; }
+        .badge.warn { background: var(--warning); color: #0d1117; }
+        .badge.err { background: var(--danger); color: white; }
+
+        .toast {
+            position: fixed;
+            bottom: calc(env(safe-area-inset-bottom) + 1rem);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 0.7rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            max-width: 90%;
+        }
+        .toast.error { border-color: var(--danger); }
+        .toast.ok { border-color: var(--success); }
+    </style>
+</head>
+<body x-data="capture()" x-init="start()">
+    <header>
+        <h1>LifeOS Capture</h1>
+        <a href="/">Open full app →</a>
+    </header>
+
+    <div class="camera-wrap">
+        <video x-ref="video" autoplay playsinline muted x-show="streaming"></video>
+        <canvas x-ref="canvas" style="display:none;"></canvas>
+        <div class="flash" :class="{ on: flashOn }"></div>
+        <div class="camera-error" x-show="cameraError" x-text="cameraError"></div>
+    </div>
+
+    <div class="pages" x-show="pages.length > 0">
+        <template x-for="(p, i) in pages" :key="i">
+            <div class="page-thumb">
+                <img :src="p.dataUrl" alt="">
+                <span class="num" x-text="(i + 1)"></span>
+                <button class="rm" @click="removePage(i)" aria-label="Remove page">×</button>
+            </div>
+        </template>
+    </div>
+
+    <div class="controls">
+        <select x-model="domain" :disabled="uploading">
+            <option value="">— Domain hint (optional) —</option>
+            <option value="medical">Medical</option>
+            <option value="financial">Financial</option>
+            <option value="auto">Auto</option>
+            <option value="home">Home</option>
+            <option value="vet">Vet</option>
+            <option value="legal">Legal</option>
+            <option value="insurance">Insurance</option>
+        </select>
+
+        <div class="row center">
+            <button class="btn-capture" @click="snap()" :disabled="!streaming || uploading"
+                    aria-label="Capture page"></button>
+        </div>
+
+        <div class="row" x-show="pages.length > 0">
+            <button class="btn-ghost" @click="reset()" :disabled="uploading"
+                    style="flex:1;">Discard</button>
+            <button class="btn-primary" @click="upload()" :disabled="uploading"
+                    style="flex:2;">
+                <span x-show="!uploading">
+                    Upload <span x-text="pages.length"></span> page<span x-show="pages.length !== 1">s</span>
+                </span>
+                <span x-show="uploading" x-text="uploadProgressText"></span>
+            </button>
+        </div>
+    </div>
+
+    <div class="recent" x-show="recentCaptures.length > 0">
+        <h2>Recent captures</h2>
+        <template x-for="c in recentCaptures" :key="c.id">
+            <div class="recent-item">
+                <span class="icon" x-text="iconFor(c)"></span>
+                <div class="body">
+                    <div x-text="c.title"></div>
+                    <div class="meta">
+                        <span class="badge"
+                              :class="{ ok: c.ai_status === 'complete' && c.review_status !== 'needs_review',
+                                        warn: c.review_status === 'needs_review',
+                                        err: c.ai_status === 'failed' }"
+                              x-text="statusLabel(c)"></span>
+                        <span x-show="c.domain" x-text="' ' + c.domain"></span>
+                        <span x-show="c.category" x-text="' · ' + (c.category || '').replace(/_/g, ' ')"></span>
+                    </div>
+                </div>
+                <a href="/" style="color:var(--primary); font-size:0.8rem;"
+                   x-show="c.ai_status === 'complete'">Open</a>
+            </div>
+        </template>
+    </div>
+
+    <div class="toast" :class="toastType" x-show="toastMsg" x-text="toastMsg"
+         x-transition style="display:none;"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script>
+        function capture() {
+            return {
+                streaming: false,
+                cameraError: null,
+                pages: [],
+                domain: '',
+                uploading: false,
+                uploadProgressText: 'Uploading…',
+                recentCaptures: [],
+                pollTimer: null,
+                stream: null,
+                flashOn: false,
+                toastMsg: '',
+                toastType: '',
+
+                async start() {
+                    // Register the service worker (best-effort).
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.register('/capture/sw.js', { scope: '/capture/' })
+                            .catch((e) => console.warn('SW registration failed:', e));
+                    }
+                    await this.startCamera();
+                    this.pollTimer = setInterval(() => this.pollPending(), 2500);
+                },
+
+                async startCamera() {
+                    if (!navigator.mediaDevices?.getUserMedia) {
+                        this.cameraError = 'Camera not supported in this browser.';
+                        return;
+                    }
+                    try {
+                        this.stream = await navigator.mediaDevices.getUserMedia({
+                            video: {
+                                facingMode: { ideal: 'environment' },
+                                width: { ideal: 1920 },
+                                height: { ideal: 2560 },
+                            },
+                            audio: false,
+                        });
+                        this.$refs.video.srcObject = this.stream;
+                        this.streaming = true;
+                    } catch (e) {
+                        this.cameraError = 'Camera access denied or unavailable. ' + (e.message || '');
+                    }
+                },
+
+                async snap() {
+                    const video = this.$refs.video;
+                    if (!video.videoWidth) return;
+
+                    // Cap longest edge at 2000px to keep upload size reasonable.
+                    const maxEdge = 2000;
+                    let w = video.videoWidth;
+                    let h = video.videoHeight;
+                    if (Math.max(w, h) > maxEdge) {
+                        const scale = maxEdge / Math.max(w, h);
+                        w = Math.round(w * scale);
+                        h = Math.round(h * scale);
+                    }
+                    const canvas = this.$refs.canvas;
+                    canvas.width = w;
+                    canvas.height = h;
+                    canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+
+                    this.flashOn = true;
+                    setTimeout(() => { this.flashOn = false; }, 150);
+
+                    const blob = await new Promise((resolve) =>
+                        canvas.toBlob(resolve, 'image/jpeg', 0.85));
+                    if (!blob) return;
+
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.5); // smaller for thumbnail
+                    this.pages.push({ blob, dataUrl });
+                },
+
+                removePage(i) {
+                    this.pages.splice(i, 1);
+                },
+
+                reset() {
+                    this.pages = [];
+                    this.domain = '';
+                },
+
+                async upload() {
+                    if (this.pages.length === 0) return;
+                    this.uploading = true;
+                    this.uploadProgressText = 'Uploading…';
+
+                    const fd = new FormData();
+                    this.pages.forEach((p, i) => {
+                        fd.append('files', p.blob, `page-${String(i + 1).padStart(2, '0')}.jpg`);
+                    });
+                    if (this.domain) fd.append('domain', this.domain);
+
+                    try {
+                        const res = await fetch('/api/documents/upload-multi', {
+                            method: 'POST',
+                            body: fd,
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(err.detail || err.message || 'Upload failed');
+                        }
+                        const json = await res.json();
+                        const doc = json.data;
+                        this.recentCaptures.unshift({
+                            id: doc.id,
+                            title: doc.title || 'Mobile capture',
+                            ai_status: doc.ai_status,
+                            domain: null,
+                            category: null,
+                            review_status: null,
+                            captured_at: new Date().toISOString(),
+                        });
+                        if (this.recentCaptures.length > 10) {
+                            this.recentCaptures = this.recentCaptures.slice(0, 10);
+                        }
+                        this.toast('Uploaded — analyzing…', 'ok');
+                        this.reset();
+                    } catch (e) {
+                        this.toast('Upload failed: ' + e.message, 'error');
+                    } finally {
+                        this.uploading = false;
+                    }
+                },
+
+                async pollPending() {
+                    const pending = this.recentCaptures.filter(
+                        (c) => c.ai_status !== 'complete' && c.ai_status !== 'failed' && c.ai_status !== 'skipped'
+                    );
+                    for (const c of pending) {
+                        try {
+                            const res = await fetch('/api/documents/' + c.id);
+                            if (!res.ok) continue;
+                            const d = (await res.json()).data;
+                            c.title = d.title || c.title;
+                            c.ai_status = d.ai_status;
+                            c.domain = d.domain;
+                            c.category = d.category;
+                            c.review_status = d.review_status;
+                        } catch {}
+                    }
+                },
+
+                iconFor(c) {
+                    if (c.ai_status === 'failed') return '⚠️';
+                    if (c.ai_status !== 'complete') return '🔄';
+                    if (c.review_status === 'needs_review') return '⚠️';
+                    return '✅';
+                },
+
+                statusLabel(c) {
+                    if (c.ai_status === 'failed') return 'Failed';
+                    if (c.ai_status === 'pending' || c.ai_status === 'analyzing') return 'Processing…';
+                    if (c.review_status === 'needs_review') return 'Needs review';
+                    if (c.ai_status === 'complete') return 'Filed';
+                    return c.ai_status || '…';
+                },
+
+                toast(msg, type = 'ok') {
+                    this.toastMsg = msg;
+                    this.toastType = type;
+                    setTimeout(() => { this.toastMsg = ''; }, 3000);
+                },
+            };
+        }
+    </script>
+</body>
+</html>

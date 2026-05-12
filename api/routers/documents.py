@@ -73,6 +73,90 @@ async def upload_document(
     return {"data": result}
 
 
+# ── Multi-image upload (Phase 4: mobile capture) ────────────────────────
+
+@router.post("/upload-multi")
+async def upload_multi_image(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    title: str = Form(None),
+    domain: str = Form(None),
+    category: str = Form(None),
+    subject_id: str = Form(None),
+    tags: str = Form(""),
+):
+    """Accept N images (in capture order), merge into a single PDF, ingest as one doc.
+
+    Files are merged in the order they're sent. Each image becomes one page.
+    Non-image files are rejected.
+    """
+    from PIL import Image
+    import io
+
+    user_email = get_user_email(request)
+
+    if not files:
+        raise HTTPException(400, "No files uploaded")
+    if len(files) > 25:
+        raise HTTPException(400, "Maximum 25 pages per multi-image upload")
+    if domain and domain not in DOMAINS:
+        raise HTTPException(400, f"Invalid domain: {domain}")
+    if category and category not in ALL_CATEGORIES:
+        raise HTTPException(400, f"Invalid category: {category}")
+
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    tag_list.append("mobile_capture")
+
+    # Load each image into PIL, normalising to RGB so PDF save works for PNGs/HEICs.
+    images: list = []
+    for f in files:
+        raw = await f.read()
+        if not raw:
+            raise HTTPException(400, f"Empty file: {f.filename}")
+        try:
+            im = Image.open(io.BytesIO(raw))
+            im.load()
+        except Exception as e:
+            raise HTTPException(400, f"Not a valid image ({f.filename}): {e}")
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGB")
+        elif im.mode != "RGB":
+            im = im.convert("RGB")
+        images.append(im)
+
+    # Save as multi-page PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp_path = tmp.name
+    try:
+        first, rest = images[0], images[1:]
+        first.save(tmp_path, "PDF", save_all=True, append_images=rest, resolution=150.0)
+
+        first_filename = files[0].filename or "capture.jpg"
+        original_name = f"{Path(first_filename).stem}_{len(files)}pages.pdf"
+        doc_title = title or f"Mobile capture ({len(files)} page{'s' if len(files) != 1 else ''})"
+
+        result = await ingest_file(
+            tmp_path,
+            original_filename=original_name,
+            title=doc_title,
+            domain=domain,
+            category=category,
+            subject_id=subject_id,
+            tags=tag_list,
+            source="mobile_capture",
+            uploaded_by=user_email,
+        )
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    await audit_log("upload", user_email, "documents", result["id"],
+                    {"filename": original_name, "pages": len(files),
+                     "size": result["file_size_bytes"]})
+
+    return {"data": result}
+
+
 # ── Document CRUD ──────────────────────────────────────────────────────
 
 @router.get("/review")
