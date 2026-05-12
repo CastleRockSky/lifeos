@@ -128,6 +128,27 @@ def _next_due_for(record_type: str, data: dict) -> Optional[date]:
             return d
         return None
 
+    if record_type == "insurance_policy":
+        # Renewal action 30 days before expiration.
+        if data.get("auto_renew") is True:
+            return None
+        exp = _parse_date(data.get("expiration_date"))
+        if exp and today >= exp - timedelta(days=30):
+            return exp
+        return None
+
+    if record_type == "identity_document":
+        # Passport renewals especially want a long lead time. Surface 180 days
+        # before for passports, 60 for other docs.
+        exp = _parse_date(data.get("expiration_date"))
+        if not exp:
+            return None
+        doc_type = (data.get("document_type") or "").lower()
+        lead = 180 if doc_type == "passport" else 60
+        if today >= exp - timedelta(days=lead):
+            return exp
+        return None
+
     return None
 
 
@@ -153,6 +174,10 @@ def _action_title_for(record_type: str, data: dict, amount: Optional[float]) -> 
         return f"{(data.get('product') or data.get('type') or 'preventative').title()} due"
     if record_type == "pet_medication":
         return f"Refill (pet): {data.get('name') or 'medication'}"
+    if record_type == "insurance_policy":
+        return f"Renew {data.get('policy_type') or 'insurance'}: {data.get('carrier') or ''}".strip()
+    if record_type == "identity_document":
+        return f"Renew {data.get('document_type') or 'document'}"
     return data.get("name") or "Action"
 
 
@@ -167,6 +192,8 @@ _DOMAIN_FOR_RECORD_TYPE = {
     "pet_vaccination": "vet",
     "preventative_schedule": "vet",
     "pet_medication": "vet",
+    "insurance_policy": "insurance",
+    "identity_document": "legal",
 }
 
 

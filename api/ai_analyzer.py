@@ -21,7 +21,7 @@ from constants import DOMAINS, CATEGORIES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_PROMPT_VERSION = 6
+CURRENT_PROMPT_VERSION = 7
 
 ANALYSIS_SYSTEM_PROMPT = """You are LifeOS, a personal document management AI. Analyze the document and return structured JSON.
 
@@ -128,6 +128,17 @@ Supported record_type values and their data shapes:
 
 - **preventative_schedule** (flea/tick/heartworm/dental — usually a recurring product the pet takes):
   `{"type": "flea_tick", "product": "NexGard", "dose": "68mg", "frequency": "monthly", "last_administered": "2025-03-01", "next_due": "2025-04-01", "cost_per_dose": 42, "notes": "Chewable — give with food"}`
+
+- **insurance_policy** (from declaration pages, premium notices, ID cards):
+  `{"carrier": "State Farm", "policy_number": "POL-123456", "policy_type": "auto", "coverage_type": "full", "premium_monthly": 145, "premium_frequency": "monthly", "deductible": 500, "coverage_limits": {"bodily_injury": "100/300", "property_damage": 100000}, "effective_date": "2025-01-01", "expiration_date": "2025-07-01", "auto_renew": true, "agent_name": "John Smith", "agent_phone": "303-555-0300", "linked_domain": "auto", "notes": null}`
+  policy_type values: auto, home, health, dental, vision, life, pet, umbrella, disability, renters
+
+- **identity_document** (from passports, driver's licenses, certificates, deeds, wills):
+  `{"document_type": "passport", "issuing_authority": "US Department of State", "document_number_last4": "5678", "issue_date": "2020-06-15", "expiration_date": "2030-06-14", "notes": "Stored in home safe"}`
+  document_type values: passport, drivers_license, birth_certificate, marriage_certificate, social_security_card, vehicle_title, property_deed, will, trust, power_of_attorney
+
+- **legal_contact** (from attorney correspondence, contracts):
+  `{"name": "Jane Doe, Esq.", "specialty": "estate planning", "firm": "Doe & Associates", "phone": "303-555-0400", "email": "jane@doelaw.com", "last_consulted": "2024-11-15", "notes": "Drafted will and trust"}`
 
 Rules:
 - Only extract records whose subject is genuinely the document's subject (skip records about other people mentioned in passing).

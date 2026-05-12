@@ -477,6 +477,12 @@
             <button class="nav-item" :class="{ active: view === 'pets' }" @click="navigate('pets')">
                 Pets
             </button>
+            <button class="nav-item" :class="{ active: view === 'insurance' }" @click="navigate('insurance')">
+                Insurance
+            </button>
+            <button class="nav-item" :class="{ active: view === 'legal' }" @click="navigate('legal')">
+                Legal
+            </button>
             <button class="nav-item" :class="{ active: view === 'trends' }" @click="navigate('trends')">
                 Trends
             </button>
@@ -1539,6 +1545,170 @@
             </div>
         </template>
 
+        <!-- Insurance Dashboard -->
+        <template x-if="view === 'insurance'">
+            <div>
+                <div class="page-header"><h2>Insurance</h2></div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Active policies</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="(insurance?.active || []).length"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Total monthly premium</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="insurance?.monthlyPremiumTotal != null ? '$' + Math.round(insurance.monthlyPremiumTotal) : '—'"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Renewing 90d</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             x-text="(insurance?.renewingSoon || []).length"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Coverage gaps</div>
+                        <div class="stat-value" style="font-size:1.4rem;"
+                             :style="(insurance?.gaps || []).length > 0 ? 'color:var(--warning);' : ''"
+                             x-text="(insurance?.gaps || []).length"></div>
+                        <div style="font-size:0.7rem; color:var(--text-muted);"
+                             x-text="(insurance?.gaps || []).join(', ')"></div>
+                    </div>
+                </div>
+
+                <!-- Renewal timeline -->
+                <div style="margin-top:1.5rem;" x-show="(insurance?.renewingSoon || []).length > 0">
+                    <div class="page-header"><h2>Upcoming renewals (90d)</h2></div>
+                    <template x-for="p in (insurance?.renewingSoon || [])" :key="p.id">
+                        <div class="action-item"
+                             :class="{ overdue: isExpirationPast(p.data?.expiration_date) }">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="p.data?.carrier || 'Carrier'"></span>
+                                    <span style="color:var(--text-muted); font-weight:normal;"
+                                          x-text="' · ' + (p.data?.policy_type || '')"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span x-text="'Expires ' + (p.data?.expiration_date || '')"></span>
+                                    <span x-show="p.data?.policy_number" x-text="' · #' + p.data.policy_number"></span>
+                                    <span x-show="p.data?.auto_renew" class="badge" style="background:var(--success);">auto-renew</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- All policies -->
+                <div style="margin-top:1.5rem;">
+                    <div class="page-header"><h2>All policies</h2></div>
+                    <template x-if="(insurance?.active || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">
+                                No insurance policies on file. Forward a declaration page to get started.
+                            </p>
+                        </div>
+                    </template>
+                    <template x-for="p in (insurance?.active || [])" :key="p.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title">
+                                    <span x-text="(p.data?.carrier || 'Carrier') + ' — ' + (p.data?.policy_type || '')"></span>
+                                </div>
+                                <div class="action-item-meta">
+                                    <span x-show="p.data?.policy_number" x-text="'#' + p.data.policy_number"></span>
+                                    <span x-show="p.data?.premium_monthly != null" x-text="' · $' + p.data.premium_monthly + '/mo'"></span>
+                                    <span x-show="p.data?.deductible != null" x-text="' · $' + p.data.deductible + ' deductible'"></span>
+                                    <span x-show="p.data?.expiration_date"
+                                          :class="{ 'badge-priority-high': isExpirationSoon(p.data.expiration_date, 90) }"
+                                          x-text="' · expires ' + p.data.expiration_date"></span>
+                                </div>
+                                <div x-show="p.data?.agent_name" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">
+                                    Agent: <span x-text="p.data.agent_name"></span>
+                                    <span x-show="p.data?.agent_phone" x-text="' · ' + p.data.agent_phone"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
+        <!-- Legal Dashboard -->
+        <template x-if="view === 'legal'">
+            <div>
+                <div class="page-header"><h2>Legal</h2></div>
+
+                <!-- Identity documents -->
+                <div style="margin-bottom:1.5rem;">
+                    <div class="page-header"><h2>Identity documents</h2></div>
+                    <template x-if="(legal?.documents || []).length === 0">
+                        <div class="empty-state" style="padding:1rem;">
+                            <p style="font-size:0.85rem; color:var(--text-muted);">
+                                No identity documents tracked yet.
+                            </p>
+                        </div>
+                    </template>
+                    <template x-for="d in (legal?.documents || [])" :key="d.id">
+                        <div class="action-item"
+                             :class="{ overdue: isExpirationPast(d.data?.expiration_date) }">
+                            <div class="action-item-content">
+                                <div class="action-item-title"
+                                     x-text="(d.data?.document_type || 'Document').replace(/_/g, ' ')"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="d.data?.issuing_authority" x-text="d.data.issuing_authority"></span>
+                                    <span x-show="d.data?.document_number_last4" x-text="' · *' + d.data.document_number_last4"></span>
+                                    <span x-show="d.data?.expiration_date"
+                                          :class="{ 'badge-priority-high': isExpirationSoon(d.data.expiration_date, 180) }"
+                                          x-text="' · expires ' + d.data.expiration_date"></span>
+                                    <span x-show="d.data?.storage_location" x-text="' · ' + d.data.storage_location"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Estate planning -->
+                <div style="margin-bottom:1.5rem;" x-show="(legal?.estate || []).length > 0">
+                    <div class="page-header"><h2>Estate planning</h2></div>
+                    <template x-for="d in (legal?.estate || [])" :key="d.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title"
+                                     x-text="(d.data?.document_type || 'Document').replace(/_/g, ' ')"></div>
+                                <div class="action-item-meta">
+                                    <span x-show="d.data?.issue_date" x-text="'Created ' + d.data.issue_date"></span>
+                                    <span x-show="d.data?.last_reviewed" x-text="' · reviewed ' + d.data.last_reviewed"></span>
+                                    <span x-show="d.data?.storage_location" x-text="' · ' + d.data.storage_location"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Legal contacts -->
+                <div style="margin-bottom:1.5rem;" x-show="(legal?.contacts || []).length > 0">
+                    <div class="page-header"><h2>Contacts</h2></div>
+                    <template x-for="c in (legal?.contacts || [])" :key="c.id">
+                        <div class="action-item">
+                            <div class="action-item-content">
+                                <div class="action-item-title" x-text="c.data?.name || 'Contact'"></div>
+                                <div class="action-item-meta">
+                                    <span class="badge" x-text="c.data?.specialty || ''"></span>
+                                    <span x-show="c.data?.firm" x-text="' · ' + c.data.firm"></span>
+                                    <span x-show="c.data?.phone" x-text="' · ' + c.data.phone"></span>
+                                    <span x-show="c.data?.email" x-text="' · ' + c.data.email"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
         <!-- Trends -->
         <template x-if="view === 'trends'">
             <div>
@@ -2025,6 +2195,10 @@ function lifeos() {
         // Pets (Phase 8)
         pets: { list: [], selectedId: '', card: null },
 
+        // Insurance + Legal (Phase 11)
+        insurance: null,
+        legal: null,
+
         // Trends (Phase 9)
         trends: {
             subjectId: '',
@@ -2106,6 +2280,8 @@ function lifeos() {
             if (v === 'home_dash') this.loadHome();
             if (v === 'pets') this.loadPets();
             if (v === 'trends') this.initTrendsView();
+            if (v === 'insurance') this.loadInsurance();
+            if (v === 'legal') this.loadLegal();
         },
 
         async api(url, opts = {}) {
@@ -2467,6 +2643,71 @@ function lifeos() {
                 ((c.data?.trade || '') + ' ' + (c.data?.name || '') + ' ' + (c.data?.notes || ''))
                     .toLowerCase().includes(q)
             );
+        },
+
+        async loadInsurance() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/records?record_type=insurance_policy&per_page=200');
+                const all = (await res.json()).data || [];
+                const active = all.filter((p) => (p.data?.status || 'active') === 'active');
+                const today = new Date(); today.setHours(0,0,0,0);
+                const cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + 90);
+                const renewingSoon = active.filter((p) => {
+                    if (!p.data?.expiration_date || p.data?.auto_renew) return false;
+                    const d = new Date(p.data.expiration_date);
+                    return d <= cutoff;
+                });
+                let monthlyTotal = 0;
+                for (const p of active) {
+                    const m = p.data?.premium_monthly;
+                    if (typeof m === 'number') monthlyTotal += m;
+                    else if (typeof p.data?.premium === 'number') {
+                        const freq = (p.data?.premium_frequency || 'monthly').toLowerCase();
+                        const factor = ({ monthly: 1, quarterly: 1/3, semiannual: 1/6, yearly: 1/12 })[freq] || 1;
+                        monthlyTotal += p.data.premium * factor;
+                    }
+                }
+                const expectedTypes = ['auto', 'home', 'health', 'umbrella'];
+                const present = new Set(active.map((p) => (p.data?.policy_type || '').toLowerCase()));
+                const gaps = expectedTypes.filter((t) => !present.has(t));
+                this.insurance = {
+                    active,
+                    renewingSoon: renewingSoon.sort((a, b) =>
+                        (a.data?.expiration_date || '').localeCompare(b.data?.expiration_date || '')),
+                    monthlyPremiumTotal: monthlyTotal,
+                    gaps,
+                };
+            } catch (e) {
+                console.warn('loadInsurance failed', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadLegal() {
+            this.loading = true;
+            try {
+                const [docs, contacts] = await Promise.all([
+                    fetch('/api/records?record_type=identity_document&per_page=200').then((r) => r.json()),
+                    fetch('/api/records?record_type=legal_contact&per_page=200').then((r) => r.json()),
+                ]);
+                const all = (docs.data || []).slice().sort((a, b) => {
+                    const ax = a.data?.expiration_date || '9999-12-31';
+                    const bx = b.data?.expiration_date || '9999-12-31';
+                    return ax.localeCompare(bx);
+                });
+                const estateTypes = new Set(['will', 'trust', 'power_of_attorney']);
+                this.legal = {
+                    documents: all.filter((d) => !estateTypes.has((d.data?.document_type || '').toLowerCase())),
+                    estate: all.filter((d) => estateTypes.has((d.data?.document_type || '').toLowerCase())),
+                    contacts: contacts.data || [],
+                };
+            } catch (e) {
+                console.warn('loadLegal failed', e);
+            } finally {
+                this.loading = false;
+            }
         },
 
         async initTrendsView() {

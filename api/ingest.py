@@ -286,6 +286,7 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                         "appliance", "home_maintenance_schedule",
                         "maintenance_schedule", "vehicle",
                         "pet_vaccination", "preventative_schedule", "pet_medication",
+                        "insurance_policy", "identity_document",
                     ):
                         try:
                             from recurrences import ensure_recurring_action_item
