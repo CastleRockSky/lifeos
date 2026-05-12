@@ -1,29 +1,42 @@
 """
 bootstrap_google_calendar.py — One-time Google Calendar OAuth setup.
 
-Prerequisites:
-  1. In Google Cloud Console, enable the Google Calendar API for your project.
-  2. Create an OAuth 2.0 client (type: "Desktop app"), download the JSON, and
-     copy it to /data/auth/google-oauth-client.json inside the api container.
-  3. Run this script. It will print a URL — open it, authorise, paste the
-     resulting code back into the terminal.
+Uses the manual code-paste flow because Google deprecated the OOB/console
+flow in October 2022 and `flow.run_console()` was removed from
+google-auth-oauthlib 1.0+. The flow we use here works inside `docker exec`
+(no browser in the container) by relying on the loopback redirect: Google
+redirects to http://localhost/?code=... in the user's browser, the browser
+shows a "connection refused" page (no server is listening there), and the
+user copies the code out of the URL bar back into this script.
 
-The script writes refresh tokens to /data/auth/google-calendar-tokens.json.
-After that, set GOOGLE_CALENDAR_ENABLED=true in .env and restart the api.
+Prerequisites:
+  1. In Google Cloud Console (project iconic-monitor-489123-s4 by spec
+     default), enable the Google Calendar API.
+  2. Credentials → Create OAuth 2.0 client ID → type "Desktop app" →
+     name it whatever you like.
+  3. Download the JSON and place it at /srv/lifeos/auth/google-oauth-client.json
+     on the host (mounted as /data/auth/google-oauth-client.json inside
+     the api container).
+  4. Run this script.
 
 Usage:
     docker exec -it lifeos-api python scripts/bootstrap_google_calendar.py
 """
 
-import json
 import os
 import sys
+import urllib.parse
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+# Google's "Loopback IP address flow" allows any port on localhost without
+# pre-registering it as a redirect URI for Desktop-app OAuth clients.
+# We never actually listen here — the user just copies the code out of
+# the browser's address bar after the redirect fails.
+REDIRECT_URI = os.environ.get("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost")
 
 
 def main():
-    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google_auth_oauthlib.flow import Flow
 
     client_path = os.environ.get(
         "GOOGLE_OAUTH_CLIENT_PATH",
@@ -42,14 +55,57 @@ def main():
 
     os.makedirs(os.path.dirname(tokens_path), exist_ok=True)
 
-    flow = InstalledAppFlow.from_client_secrets_file(client_path, SCOPES)
-    # Console flow: prints URL, asks for the code on stdin.
-    creds = flow.run_console()
+    flow = Flow.from_client_secrets_file(
+        client_path,
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI,
+    )
+
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",  # forces issuance of a refresh_token
+    )
+
+    print()
+    print("=" * 72)
+    print(" Step 1: Open this URL in any browser and authorize:")
+    print()
+    print(f"   {auth_url}")
+    print()
+    print(" Step 2: After authorizing, Google will redirect your browser to:")
+    print(f"   {REDIRECT_URI}/?state=...&code=<long-string>&scope=...")
+    print()
+    print(" Your browser will show a 'site can't be reached' or 'connection")
+    print(" refused' page — that's expected. The URL bar still contains the")
+    print(" code we need.")
+    print()
+    print(" Step 3: Copy the FULL redirect URL from your browser's address")
+    print(" bar (or just the 'code=...' value) and paste it below:")
+    print("=" * 72)
+    print()
+
+    raw = input(" Paste redirect URL or code: ").strip()
+    if not raw:
+        print("Empty input.", file=sys.stderr)
+        sys.exit(1)
+
+    # Accept either the full URL or just the code value
+    if raw.startswith("http"):
+        parsed = urllib.parse.urlparse(raw)
+        params = urllib.parse.parse_qs(parsed.query)
+        code = params.get("code", [None])[0]
+        if not code:
+            print("Could not find 'code=' in that URL.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        code = raw
+
+    flow.fetch_token(code=code)
+    creds = flow.credentials
 
     with open(tokens_path, "w") as f:
         f.write(creds.to_json())
 
-    # Lock down permissions
     try:
         os.chmod(tokens_path, 0o600)
     except OSError:
@@ -60,8 +116,10 @@ def main():
     print()
     print("Next steps:")
     print("  1. In .env set GOOGLE_CALENDAR_ENABLED=true")
-    print("  2. Optionally set GOOGLE_CALENDAR_ID to a dedicated 'LifeOS' calendar id")
-    print("  3. docker compose restart api")
+    print("  2. Optionally set GOOGLE_CALENDAR_ID to a dedicated 'LifeOS'")
+    print("     calendar id (e.g. abc123@group.calendar.google.com).")
+    print("     Default is 'primary' which uses your main calendar.")
+    print("  3. docker compose up -d --force-recreate api")
 
 
 if __name__ == "__main__":
