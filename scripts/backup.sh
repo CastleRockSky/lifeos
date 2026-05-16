@@ -15,6 +15,10 @@
 # B2_KEY_ID, B2_APPLICATION_KEY are set). Both read from repo /.env; each leg
 # is independent and non-fatal.
 #
+# Optional failure alerting: when HETRIX_HEARTBEAT_URL is set, a successful
+# run pings that HetrixTools heartbeat monitor. A failed/crashed run — or a
+# run that never happens — sends no ping, so HetrixTools alerts you.
+#
 # Run via cron, e.g. nightly:
 #   0 3 * * * /opt/lifeos/scripts/backup.sh >> /var/log/lifeos-backup.log 2>&1
 
@@ -69,6 +73,7 @@ B2_BUCKET="${B2_BUCKET:-}"
 B2_KEY_ID="${B2_KEY_ID:-}"
 B2_APPLICATION_KEY="${B2_APPLICATION_KEY:-}"
 B2_PREFIX="${B2_PREFIX:-}"  # optional path prefix inside the bucket
+HETRIX_HEARTBEAT_URL="${HETRIX_HEARTBEAT_URL:-}"  # HetrixTools heartbeat ping URL
 
 TS="$(date -u +%Y%m%d-%H%M%S)"
 WORK="$(mktemp -d -t lifeos-backup-XXXXXX)"
@@ -159,3 +164,18 @@ ls -1t "${BACKUP_DIR}"/lifeos-*.tar.gz 2>/dev/null | tail -n "+$((RETAIN_COUNT +
     done
 
 echo "[$(date -Iseconds)] Backup complete."
+
+# ── Heartbeat ping (optional dead-man's-switch) ─────────────────────────
+# Reached only on a clean run — `set -e` aborts the script before here on
+# any core failure, so HetrixTools simply never sees the ping and alerts
+# once the expected window lapses (this also catches "cron never ran").
+# Off-site upload failures above are non-fatal and do NOT suppress the
+# ping; they stay visible in the log and on the Settings page.
+if [ -n "$HETRIX_HEARTBEAT_URL" ]; then
+    echo "  - Pinging HetrixTools heartbeat monitor..."
+    if curl -fsS -m 15 --retry 3 -o /dev/null "$HETRIX_HEARTBEAT_URL"; then
+        echo "    ✓ Heartbeat sent"
+    else
+        echo "    ! Heartbeat ping failed (curl exit $?)" >&2
+    fi
+fi

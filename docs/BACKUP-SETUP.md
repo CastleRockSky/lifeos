@@ -143,6 +143,45 @@ on the bucket (Backblaze console → bucket → Lifecycle Settings) to
 auto-expire — e.g. "keep only the last version, hide/delete after N
 days."
 
+## Failure alerting (HetrixTools heartbeat)
+
+Logging a failure to `/var/log/lifeos-backup.log` only helps if someone
+reads the log. A **heartbeat monitor** is a dead-man's-switch: the
+backup pings a URL on success, and the monitoring service alerts you
+when an expected ping doesn't arrive. Because the alert is triggered by
+*absence*, it catches all three failure modes — a crashed run, a run
+that fails partway, and a run that **never happens at all** (e.g. a
+broken cron entry, which is exactly what bit this project once).
+
+### One-time setup
+
+1. In HetrixTools: **Monitors → Add Monitor → Heartbeat** (a.k.a. cron
+   monitor).
+2. Set the expected interval to **1 day** with a few hours of grace —
+   the backup runs at 03:00, so an alert window of ~26–30h is sensible.
+3. Pick your **notification contacts** (email, mobile push, Telegram,
+   Slack, webhook — whatever you already use in HetrixTools).
+4. Copy the monitor's **ping URL** and add it to `.env`:
+
+   ```
+   HETRIX_HEARTBEAT_URL=https://hetrixtools.com/heartbeat/<token>/
+   ```
+
+That's it — no installer re-run needed; `backup.sh` reads `.env` on
+every run.
+
+### What gets pinged
+
+`backup.sh` pings the URL **only on a clean run**, as its last step.
+`set -e` aborts the script before that point on any core failure
+(Postgres dump, Qdrant snapshot, archive write), so a failed or
+crashed run simply sends no ping.
+
+Off-site upload failures (Azure / B2) are **non-fatal** and do *not*
+suppress the heartbeat — they stay visible in the log and on the
+Settings page. If you want those alerted on too, add a second heartbeat
+monitor and a ping inside the upload blocks.
+
 ## Operational commands
 
 ```bash
