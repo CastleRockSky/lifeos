@@ -1,7 +1,8 @@
 """
-routers/system.py — Health, stats, domains, categories, metrics.
+routers/system.py — Health, stats, domains, categories, metrics, config, backups.
 """
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,36 @@ from database import get_pool
 from constants import DOMAINS, CATEGORIES
 
 router = APIRouter(prefix="/api", tags=["system"])
+
+# ── Settings page support ───────────────────────────────────────────────
+#
+# The Settings UI is read-only: it surfaces the effective config (secrets
+# masked) and the backup tarballs. Editing still happens in .env + restart.
+
+# Setting keys whose values must never leave the server. Shown as a
+# set/not-set indicator instead of the literal value.
+_SECRET_SETTINGS = {
+    "anthropic_api_key",
+    "secret_key",
+    "imap_password",
+    "database_url",  # embeds the Postgres password
+}
+
+# Curated, ordered view of config — (group, [setting keys]). Keys absent from
+# the Settings model are skipped, so this is safe across config changes.
+_CONFIG_GROUPS = [
+    ("AI & embeddings", ["anthropic_api_key", "embedding_model", "embedding_dim",
+                         "chunk_size", "chunk_overlap"]),
+    ("Storage", ["upload_dir", "backup_dir", "qdrant_url", "qdrant_collection"]),
+    ("Security", ["secret_key", "allowed_origins"]),
+    ("Inbox watcher", ["inbox_enabled", "inbox_dir", "inbox_poll_interval",
+                       "inbox_stability_seconds"]),
+    ("Email ingestion", ["imap_enabled", "imap_host", "imap_port", "imap_username",
+                         "imap_password", "imap_mailbox", "imap_poll_interval"]),
+    ("Google Calendar", ["google_calendar_enabled", "google_calendar_id",
+                         "google_calendar_domains", "google_credentials_path"]),
+    ("Hardening", ["max_upload_bytes", "qa_rate_limit_per_minute"]),
+]
 
 
 @router.get("/health")
@@ -112,6 +143,92 @@ async def list_categories(domain: str = Query(None)):
             raise HTTPException(400, f"Invalid domain: {domain}")
         return {"data": CATEGORIES[domain]}
     return {"data": CATEGORIES}
+
+
+@router.get("/system/config")
+async def get_config():
+    """Effective runtime config for the Settings page (read-only).
+
+    Secrets are never returned — only a set/not-set flag. Also reports
+    derived feature-status booleans so the UI can show what's actually live.
+    """
+    s = get_settings()
+    dump = s.model_dump()
+
+    groups = []
+    for group_name, keys in _CONFIG_GROUPS:
+        items = []
+        for key in keys:
+            if key not in dump:
+                continue
+            value = dump[key]
+            is_secret = key in _SECRET_SETTINGS
+            items.append({
+                "key": key,
+                "label": key.replace("_", " "),
+                "secret": is_secret,
+                # For secrets, report only whether a non-default value is set.
+                "value": (bool(value) and value != "change-me") if is_secret else value,
+            })
+        if items:
+            groups.append({"group": group_name, "settings": items})
+
+    features = {
+        "inbox_watcher": s.inbox_enabled,
+        "email_ingestion": s.imap_enabled,
+        "google_calendar": s.google_calendar_enabled,
+        "anthropic_api": bool(s.anthropic_api_key),
+        "cors_locked_down": s.allowed_origins not in ("", "*"),
+    }
+    return {"data": {"features": features, "groups": groups}}
+
+
+@router.get("/system/backups")
+async def list_backups():
+    """List backup tarballs (scripts/backup.sh output), newest first.
+
+    The backup directory is mounted read-only into the API container. If the
+    mount is missing, `accessible` is false rather than erroring.
+    """
+    backup_dir = get_settings().backup_dir
+    result = {
+        "backup_dir": backup_dir,
+        "accessible": False,
+        "backups": [],
+        "count": 0,
+        "total_bytes": 0,
+        "newest_age_hours": None,
+    }
+
+    if not os.path.isdir(backup_dir):
+        return {"data": result}
+
+    result["accessible"] = True
+    entries = []
+    for name in os.listdir(backup_dir):
+        if not (name.startswith("lifeos-") and name.endswith(".tar.gz")):
+            continue
+        path = os.path.join(backup_dir, name)
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        entries.append({
+            "name": name,
+            "size_bytes": st.st_size,
+            "modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        })
+
+    entries.sort(key=lambda e: e["modified"], reverse=True)
+    result["backups"] = entries
+    result["count"] = len(entries)
+    result["total_bytes"] = sum(e["size_bytes"] for e in entries)
+    if entries:
+        newest = datetime.fromisoformat(entries[0]["modified"])
+        age = datetime.now(timezone.utc) - newest
+        result["newest_age_hours"] = round(age.total_seconds() / 3600, 1)
+
+    return {"data": result}
 
 
 @router.get("/metrics")

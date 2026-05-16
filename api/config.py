@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     # Storage
     upload_dir: str = "/data/documents"
+    # Backup tarballs, surfaced read-only on the Settings page. Mounted from
+    # ${DATA_PATH}/backups by docker-compose; written by scripts/backup.sh.
+    backup_dir: str = "/data/backups"
 
     # Security
     secret_key: str = "change-me"

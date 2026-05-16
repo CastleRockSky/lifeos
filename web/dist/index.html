@@ -489,6 +489,9 @@
             <button class="nav-item" :class="{ active: view === 'trends' }" @click="navigate('trends')">
                 Trends
             </button>
+            <button class="nav-item" :class="{ active: view === 'settings' }" @click="navigate('settings')">
+                Settings
+            </button>
         </div>
 
         <div class="sidebar-section">
@@ -2109,6 +2112,97 @@
             </div>
         </template>
 
+        <!-- Settings (read-only config + backups) -->
+        <template x-if="view === 'settings'">
+            <div>
+                <div class="page-header"><h2>Settings</h2></div>
+                <div class="loading" x-show="!sysConfig">Loading...</div>
+
+                <template x-if="sysConfig">
+                    <div>
+                        <!-- Feature status -->
+                        <h3 style="margin:0 0 0.6rem; font-size:0.95rem;">Feature status</h3>
+                        <div class="stats-grid" style="margin-bottom:1.5rem;">
+                            <template x-for="f in featureCards()" :key="f.label">
+                                <div class="stat-card">
+                                    <div class="stat-value" style="font-size:1rem;">
+                                        <span x-text="f.on ? '● On' : '○ Off'"
+                                              :style="'color:' + (f.on ? 'var(--success)' : 'var(--text-faint)')"></span>
+                                    </div>
+                                    <div class="stat-label" x-text="f.label"></div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Backups -->
+                        <h3 style="margin:0 0 0.6rem; font-size:0.95rem;">Backups</h3>
+                        <div class="card" style="margin-bottom:1.5rem;">
+                            <template x-if="sysBackups && !sysBackups.accessible">
+                                <div class="empty-state">
+                                    Backup directory not mounted into the API container
+                                    (<span x-text="sysBackups.backup_dir"></span>).
+                                </div>
+                            </template>
+                            <template x-if="sysBackups && sysBackups.accessible">
+                                <div>
+                                    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+                                        <div><strong x-text="sysBackups.count"></strong>
+                                            <span class="stat-label">archives</span></div>
+                                        <div><strong x-text="formatBytes(sysBackups.total_bytes)"></strong>
+                                            <span class="stat-label">total</span></div>
+                                        <div>
+                                            <strong x-text="backupAgeLabel()"></strong>
+                                            <span class="stat-label">since newest</span>
+                                        </div>
+                                    </div>
+                                    <div x-show="backupIsStale()" class="error" style="margin-bottom:0.75rem;">
+                                        No backup in over 48h — check the nightly cron.
+                                    </div>
+                                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                                        <template x-for="b in sysBackups.backups" :key="b.name">
+                                            <tr style="border-top:1px solid var(--border);">
+                                                <td style="padding:0.4rem 0.5rem 0.4rem 0;" x-text="b.name"></td>
+                                                <td style="padding:0.4rem 0.5rem; color:var(--text-muted); white-space:nowrap;"
+                                                    x-text="formatBytes(b.size_bytes)"></td>
+                                                <td style="padding:0.4rem 0; color:var(--text-muted); white-space:nowrap;"
+                                                    x-text="formatDate(b.modified)"></td>
+                                            </tr>
+                                        </template>
+                                    </table>
+                                    <div x-show="sysBackups.count === 0" class="empty-state">No backups found.</div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Configuration -->
+                        <h3 style="margin:0 0 0.6rem; font-size:0.95rem;">Configuration</h3>
+                        <p class="stat-label" style="margin-bottom:0.75rem;">
+                            Read-only. Edit values in <code>.env</code> and restart the API container.
+                        </p>
+                        <template x-for="g in sysConfig.groups" :key="g.group">
+                            <div class="card" style="margin-bottom:1rem;">
+                                <h4 style="margin:0 0 0.5rem; font-size:0.88rem; color:var(--primary);"
+                                    x-text="g.group"></h4>
+                                <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                                    <template x-for="s in g.settings" :key="s.key">
+                                        <tr style="border-top:1px solid var(--border);">
+                                            <td style="padding:0.4rem 0.5rem 0.4rem 0; color:var(--text-muted); text-transform:capitalize;"
+                                                x-text="s.label"></td>
+                                            <td style="padding:0.4rem 0; font-family:monospace; word-break:break-all;">
+                                                <span x-text="fmtSetting(s)"></span>
+                                                <span x-show="s.secret" class="badge"
+                                                      style="margin-left:0.4rem;">secret</span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </table>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </template>
+
     </main>
 
     <!-- Upload Modal -->
@@ -2339,6 +2433,10 @@ function lifeos() {
         reviewDocs: [],
         expirations: [],
 
+        // Settings page (read-only config + backups)
+        sysConfig: null,
+        sysBackups: null,
+
         // Email ingestion (Phase 3)
         emailStatus: null,
 
@@ -2453,6 +2551,7 @@ function lifeos() {
             if (v === 'insurance') this.loadInsurance();
             if (v === 'legal') this.loadLegal();
             if (v === 'tax') this.loadTax();
+            if (v === 'settings') this.loadSystemSettings();
         },
 
         async api(url, opts = {}) {
@@ -2481,6 +2580,52 @@ function lifeos() {
                 const res = await this.api('/api/stats');
                 this.stats = res.data;
             } catch {}
+        },
+
+        // ── Settings page ───────────────────────────────
+        async loadSystemSettings() {
+            this.sysConfig = null;
+            this.sysBackups = null;
+            try {
+                const [cfg, bk] = await Promise.all([
+                    this.api('/api/system/config'),
+                    this.api('/api/system/backups'),
+                ]);
+                this.sysConfig = cfg.data;
+                this.sysBackups = bk.data;
+            } catch {}
+        },
+
+        featureCards() {
+            const f = this.sysConfig?.features || {};
+            return [
+                { label: 'Inbox watcher', on: !!f.inbox_watcher },
+                { label: 'Email ingestion', on: !!f.email_ingestion },
+                { label: 'Google Calendar', on: !!f.google_calendar },
+                { label: 'Anthropic API', on: !!f.anthropic_api },
+                { label: 'CORS locked down', on: !!f.cors_locked_down },
+            ];
+        },
+
+        fmtSetting(s) {
+            if (s.secret) return s.value ? 'configured' : 'not set';
+            if (s.value === true) return 'on';
+            if (s.value === false) return 'off';
+            if (s.value === '' || s.value === null) return '—';
+            return String(s.value);
+        },
+
+        backupAgeLabel() {
+            const h = this.sysBackups?.newest_age_hours;
+            if (h === null || h === undefined) return '—';
+            if (h < 1) return Math.round(h * 60) + 'm';
+            if (h < 48) return Math.round(h) + 'h';
+            return Math.round(h / 24) + 'd';
+        },
+
+        backupIsStale() {
+            const h = this.sysBackups?.newest_age_hours;
+            return h !== null && h !== undefined && h > 48;
         },
 
         async loadDocuments() {

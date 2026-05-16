@@ -83,6 +83,8 @@ services:
     volumes:
       - ${DATA_PATH:-/srv/lifeos}/documents:/data/documents
       - ${DATA_PATH:-/srv/lifeos}/auth:/data/auth
+      # Read-only: the Settings page lists backup tarballs; the API never writes here.
+      - ${DATA_PATH:-/srv/lifeos}/backups:/data/backups:ro
     ports:
       - "127.0.0.1:8100:8000"
     deploy:
