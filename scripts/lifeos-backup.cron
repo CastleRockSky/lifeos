@@ -6,7 +6,7 @@
 
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-MAILTO=
+MAILTO=""
 
 # m h dom mon dow user command
 0 3 * * * root /home/dave/lifeos/scripts/backup.sh >> /var/log/lifeos-backup.log 2>&1
