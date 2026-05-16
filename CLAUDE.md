@@ -134,7 +134,14 @@ UUID prefix = first 2 characters of UUID, for filesystem distribution:
 
 ## Testing
 
-Each phase has a testing checklist in the spec. Before considering a phase complete:
+Automated tests live in `api/tests/` (pytest). See Common Commands for how to run
+them. Unit tests cover pure logic (recurrence dates, MIME classification, agent-key
+hashing, rate limiting, domain constants); `integration`-marked tests hit a live API
+and self-skip when the stack is down. Add tests alongside new pure functions and
+endpoints.
+
+Each phase also has a manual testing checklist in the spec. Before considering a
+phase complete:
 1. All checklist items pass
 2. No regressions in prior phase functionality
 3. API error responses are clean (no stack traces)
@@ -162,6 +169,11 @@ docker exec lifeos-api python scripts/reindex.py
 
 # Manual backup
 sudo systemctl start lifeos-backup.service
+
+# Run the test suite (pytest is dev-only — not in the prod image)
+docker exec lifeos-api pip install -q -r requirements-dev.txt
+docker exec -w /app lifeos-api python -m pytest                      # all tests
+docker exec -w /app lifeos-api python -m pytest -m "not integration" # unit only, no running stack needed
 ```
 
 ---
