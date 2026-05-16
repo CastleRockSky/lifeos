@@ -2,7 +2,8 @@
 
 Nightly backup of the full LifeOS state (PostgreSQL, Qdrant, document
 files, auth tokens) bundled into a single timestamped tarball.
-Optional off-site mirror to Azure Blob Storage.
+Optional off-site mirror to Azure Blob Storage and/or Backblaze B2 —
+the two legs are independent, so you can run either, both, or neither.
 
 ---
 
@@ -92,6 +93,56 @@ auto-expire:
 A common pattern: keep 30 days of dailies, then transition to cool
 storage for 90 days, then delete.
 
+## Off-site to Backblaze B2 (optional)
+
+This leg is independent of the Azure one — set it up instead of, or
+alongside, Azure. Upload uses [rclone](https://rclone.org)'s native B2
+backend.
+
+### One-time setup
+
+1. **Create a bucket** in the Backblaze B2 console (private; any region).
+
+2. **Create a scoped Application Key:**
+   - Backblaze account → **Application Keys** → **Add a New Application Key**
+   - **Allow access to:** the backup bucket only
+   - **Capabilities:** `listBuckets`, `listFiles`, `readFiles`, `writeFiles`
+   - Copy the **keyID** and **applicationKey** — the key is shown only once.
+
+3. **Add the values to `.env`** (in the repo):
+
+   ```
+   B2_BUCKET=lifeos-backups
+   B2_KEY_ID=0011223344556677889900aa
+   B2_APPLICATION_KEY=K001xxxxxxxxxxxxxxxxxxxxxxxxxxx
+   # Optional: pin to a subfolder inside the bucket
+   # B2_PREFIX=nightly
+   ```
+
+4. **Re-run the installer** — it detects the B2 env, installs `rclone`
+   from apt, and the smoke test uploads to your bucket:
+
+   ```bash
+   sudo scripts/install-backup-cron.sh
+   ```
+
+5. **Verify** the object landed — in the B2 console, browse the bucket;
+   the newest file matches the local tarball name.
+
+### What happens nightly
+
+After the local tarball is written, the script runs `rclone copy` to
+push exactly that one file to B2 (full nightly tarballs, no diffing).
+Like the Azure leg, failures are **non-fatal**: the local backup is
+kept and the rclone error is logged to `/var/log/lifeos-backup.log`.
+
+### Remote retention
+
+The script doesn't delete old B2 objects. Set a **Lifecycle Setting**
+on the bucket (Backblaze console → bucket → Lifecycle Settings) to
+auto-expire — e.g. "keep only the last version, hide/delete after N
+days."
+
 ## Operational commands
 
 ```bash
@@ -135,7 +186,9 @@ sudo docker compose up -d
 sudo docker compose ps
 ```
 
-### 3. Pull the most recent backup from Azure (if local copies are gone)
+### 3. Pull the most recent backup off-site (if local copies are gone)
+
+**From Azure Blob:**
 
 ```bash
 # Quick one-liner using azcopy (auto-installed by install-backup-cron.sh).
@@ -147,6 +200,20 @@ azcopy list "https://ezekielbackupscrs.blob.core.windows.net/lifeos-db?${AZURE_S
 azcopy copy \
     "https://ezekielbackupscrs.blob.core.windows.net/lifeos-db/lifeos-20260512-090000.tar.gz?${AZURE_SAS_TOKEN}" \
     /tmp/restore.tar.gz
+```
+
+**From Backblaze B2** (rclone, creds from `.env`):
+
+```bash
+# List newest files in the bucket:
+rclone lsl ":b2:${B2_BUCKET}/${B2_PREFIX}" \
+    --b2-account="$B2_KEY_ID" --b2-key="$B2_APPLICATION_KEY" \
+    --config /dev/null | sort -k2 -r | head -5
+
+# Download the one you want:
+rclone copy ":b2:${B2_BUCKET}/${B2_PREFIX}/lifeos-20260512-090000.tar.gz" /tmp/ \
+    --b2-account="$B2_KEY_ID" --b2-key="$B2_APPLICATION_KEY" --config /dev/null
+mv /tmp/lifeos-20260512-090000.tar.gz /tmp/restore.tar.gz
 ```
 
 ### 4. Extract

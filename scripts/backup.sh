@@ -10,8 +10,10 @@
 # Output: $BACKUP_DIR/lifeos-YYYYMMDD-HHMMSS.tar.gz
 # Retention: keeps the most recent $RETAIN_COUNT backups (default 14).
 #
-# Optional off-site upload to Azure Blob Storage when AZURE_STORAGE_ACCOUNT,
-# AZURE_CONTAINER, and AZURE_SAS_TOKEN are set (usually in repo /.env).
+# Optional off-site upload to Azure Blob Storage (when AZURE_STORAGE_ACCOUNT,
+# AZURE_CONTAINER, AZURE_SAS_TOKEN are set) and/or Backblaze B2 (when B2_BUCKET,
+# B2_KEY_ID, B2_APPLICATION_KEY are set). Both read from repo /.env; each leg
+# is independent and non-fatal.
 #
 # Run via cron, e.g. nightly:
 #   0 3 * * * /opt/lifeos/scripts/backup.sh >> /var/log/lifeos-backup.log 2>&1
@@ -63,6 +65,10 @@ AZURE_STORAGE_ACCOUNT="${AZURE_STORAGE_ACCOUNT:-}"
 AZURE_CONTAINER="${AZURE_CONTAINER:-}"
 AZURE_SAS_TOKEN="${AZURE_SAS_TOKEN:-}"
 AZURE_BLOB_PREFIX="${AZURE_BLOB_PREFIX:-}"  # optional path prefix inside the container
+B2_BUCKET="${B2_BUCKET:-}"
+B2_KEY_ID="${B2_KEY_ID:-}"
+B2_APPLICATION_KEY="${B2_APPLICATION_KEY:-}"
+B2_PREFIX="${B2_PREFIX:-}"  # optional path prefix inside the bucket
 
 TS="$(date -u +%Y%m%d-%H%M%S)"
 WORK="$(mktemp -d -t lifeos-backup-XXXXXX)"
@@ -121,6 +127,26 @@ if [ -n "$AZURE_STORAGE_ACCOUNT" ] && [ -n "$AZURE_CONTAINER" ] && [ -n "$AZURE_
             echo "    ✓ Uploaded $BLOB_NAME"
         else
             echo "    ! Azure upload failed (azcopy exit $?). Local backup preserved." >&2
+        fi
+    fi
+fi
+
+# ── Backblaze B2 upload (optional, off-site) ────────────────────────────
+if [ -n "$B2_BUCKET" ] && [ -n "$B2_KEY_ID" ] && [ -n "$B2_APPLICATION_KEY" ]; then
+    if ! command -v rclone >/dev/null 2>&1; then
+        echo "  ! Backblaze upload skipped: rclone not installed (run scripts/install-backup-cron.sh)"
+    else
+        B2_DEST=":b2:${B2_BUCKET}"
+        [ -n "$B2_PREFIX" ] && B2_DEST="${B2_DEST}/${B2_PREFIX#/}"
+        echo "  - Uploading to Backblaze B2 (${B2_BUCKET}/${B2_PREFIX})..."
+        # On-the-fly remote (:b2:) with creds passed as flags — no rclone.conf
+        # needed. --config /dev/null keeps it from reading/writing a user config.
+        if rclone copy "$ARCHIVE" "$B2_DEST" \
+               --b2-account="$B2_KEY_ID" --b2-key="$B2_APPLICATION_KEY" \
+               --config /dev/null --log-level ERROR; then
+            echo "    ✓ Uploaded $(basename "$ARCHIVE") to B2"
+        else
+            echo "    ! Backblaze upload failed (rclone exit $?). Local backup preserved." >&2
         fi
     fi
 fi

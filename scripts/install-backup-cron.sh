@@ -67,6 +67,12 @@ else
     AZURE_CONFIGURED=0
 fi
 
+if [ -n "${B2_BUCKET:-}" ] && [ -n "${B2_KEY_ID:-}" ] && [ -n "${B2_APPLICATION_KEY:-}" ]; then
+    B2_CONFIGURED=1
+else
+    B2_CONFIGURED=0
+fi
+
 if [ "$AZURE_CONFIGURED" = "1" ] && ! command -v azcopy >/dev/null 2>&1; then
     echo "[0/4] Installing azcopy (Azure backup upload tool)..."
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl >/dev/null
@@ -78,6 +84,12 @@ if [ "$AZURE_CONFIGURED" = "1" ] && ! command -v azcopy >/dev/null 2>&1; then
     rm -rf "$TMPDIR_DL"
     trap - EXIT
     echo "       Installed: $(azcopy --version 2>&1 | head -1)"
+fi
+
+if [ "$B2_CONFIGURED" = "1" ] && ! command -v rclone >/dev/null 2>&1; then
+    echo "[0/4] Installing rclone (Backblaze B2 upload tool)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rclone >/dev/null
+    echo "       Installed: $(rclone version 2>&1 | head -1)"
 fi
 
 echo "[1/4] Installing /etc/cron.d/lifeos-backup..."
@@ -115,9 +127,15 @@ LATEST="$(ls -1t ${DATA_PATH:-/srv/lifeos}/backups/lifeos-*.tar.gz 2>/dev/null |
 LATEST_SIZE="$(du -h "$LATEST" 2>/dev/null | cut -f1 || echo '?')"
 
 if [ "$AZURE_CONFIGURED" = "1" ]; then
-    AZURE_LINE="Off-site:    Azure Blob → ${AZURE_STORAGE_ACCOUNT}/${AZURE_CONTAINER}"
+    AZURE_LINE="Off-site 1:  Azure Blob → ${AZURE_STORAGE_ACCOUNT}/${AZURE_CONTAINER}"
 else
-    AZURE_LINE="Off-site:    not configured (set AZURE_STORAGE_ACCOUNT/AZURE_CONTAINER/AZURE_SAS_TOKEN in .env)"
+    AZURE_LINE="Off-site 1:  Azure not configured (set AZURE_STORAGE_ACCOUNT/AZURE_CONTAINER/AZURE_SAS_TOKEN in .env)"
+fi
+
+if [ "$B2_CONFIGURED" = "1" ]; then
+    B2_LINE="Off-site 2:  Backblaze B2 → ${B2_BUCKET}${B2_PREFIX:+/$B2_PREFIX}"
+else
+    B2_LINE="Off-site 2:  Backblaze not configured (set B2_BUCKET/B2_KEY_ID/B2_APPLICATION_KEY in .env)"
 fi
 
 cat <<EOF
@@ -132,6 +150,7 @@ Log file:    /var/log/lifeos-backup.log (weekly rotation, 4 kept)
 Backup dir:  ${DATA_PATH:-/srv/lifeos}/backups/
 Retention:   14 most recent tarballs (override with RETAIN_COUNT)
 $AZURE_LINE
+$B2_LINE
 
 Most recent backup (from the smoke test):
   $LATEST ($LATEST_SIZE)
