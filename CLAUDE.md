@@ -151,6 +151,12 @@ phase complete:
 
 ## Common Commands
 
+> **Host ports:** the NUC also runs the legacy Ezekiel stack, which holds
+> the default ports (`:8000`, `:6333`, `:5432`). LifeOS is shifted up to
+> avoid the collision — hit the LifeOS API at `http://127.0.0.1:8100`,
+> Qdrant at `:6334`, Postgres at `:5433`, Nginx at `:8180`. Inside the
+> containers the ports are unchanged, so `docker exec`/compose are unaffected.
+
 ```bash
 # Rebuild and restart
 docker compose up -d --build api
@@ -161,8 +167,8 @@ docker compose logs -f api
 # Database shell
 docker exec -it lifeos-postgres psql -U lifeos lifeos
 
-# Qdrant dashboard
-# http://localhost:6333/dashboard
+# Qdrant dashboard (host port — shifted off :6333, which is Ezekiel's)
+# http://localhost:6334/dashboard
 
 # Run a specific script
 docker exec lifeos-api python scripts/reindex.py
