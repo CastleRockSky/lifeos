@@ -148,7 +148,7 @@ Next run:    $NEXT_RUN
 Cron file:   /etc/cron.d/lifeos-backup
 Log file:    /var/log/lifeos-backup.log (weekly rotation, 4 kept)
 Backup dir:  ${DATA_PATH:-/srv/lifeos}/backups/
-Retention:   14 most recent tarballs (override with RETAIN_COUNT)
+Retention:   GFS — ${RETAIN_DAILY:-7} daily / ${RETAIN_WEEKLY:-8} weekly / ${RETAIN_MONTHLY:-12} monthly (local + off-site)
 $AZURE_LINE
 $B2_LINE
 

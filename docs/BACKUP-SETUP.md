@@ -35,13 +35,40 @@ To uninstall:
 sudo rm /etc/cron.d/lifeos-backup /etc/logrotate.d/lifeos-backup
 ```
 
+## Retention (grandfather-father-son)
+
+After each run, `backup.sh` prunes old tarballs on a tiered
+**grandfather-father-son (GFS)** schedule rather than a flat count. It
+keeps the **newest** backup in each of:
+
+| Tier    | Window  | Env var          | Default |
+|---------|---------|------------------|---------|
+| Daily   | last N days       | `RETAIN_DAILY`   | 7       |
+| Weekly  | last N ISO weeks  | `RETAIN_WEEKLY`  | 8       |
+| Monthly | last N months     | `RETAIN_MONTHLY` | 12      |
+
+The three keep sets are unioned, so one tarball can satisfy several
+tiers (today's backup is simultaneously the current daily, weekly and
+monthly). With the defaults the steady state is ~25–27 tarballs: a
+week of dailies, ~2 months of weeklies, ~1 year of monthlies.
+
+Windows are counted by the periods **present** in the backup set, not
+by the calendar — a skipped night doesn't shrink the window. Override
+any tier by adding the env var to `.env`, e.g. `RETAIN_MONTHLY=24`.
+
+The **same GFS rule is applied to the off-site copies** — see each
+off-site section below. Note the first run after upgrading from the
+old flat 14-tarball scheme will prune a few mid-week backups that fall
+outside every tier; this is expected.
+
 ## Off-site to Azure Blob (optional)
 
 ### One-time setup
 
 1. **Generate a SAS token** in the Azure portal:
    - Storage account → Containers → your container → **Generate SAS**
-   - Permissions: **Read, Add, Create, Write, List**
+   - Permissions: **Read, Add, Create, Write, List, Delete**
+     (Delete is needed so the nightly GFS prune can expire old blobs)
    - Expiry: pick something reasonable (1 year is fine)
    - Allowed protocols: **HTTPS only**
    - Click **Generate SAS token and URL**, copy the **SAS token** (the
@@ -82,16 +109,16 @@ night can retry without intervention.
 
 ### Remote retention
 
-The script doesn't delete old Azure blobs. Configure an **Azure
-lifecycle management** rule on the storage account if you want to
-auto-expire:
+After each upload the script applies the **same GFS schedule** (see
+[Retention](#retention-grandfather-father-son) above) to the Azure
+container: it lists the blobs, computes the keep set, and `azcopy
+remove`s the rest. This needs **Delete** permission on the SAS token
+(see step 1). Prune failures are non-fatal — they're logged and the
+blob is left in place for the next run to retry.
 
-- Storage account → Lifecycle management → Add rule
-- Scope: blobs in `lifeos-db`
-- Action: delete blobs **older than N days**
-
-A common pattern: keep 30 days of dailies, then transition to cool
-storage for 90 days, then delete.
+No Azure lifecycle management rule is required. If you'd rather let
+Azure expire blobs instead, you can still add one (Storage account →
+Lifecycle management) — but with the script pruning, it's redundant.
 
 ## Off-site to Backblaze B2 (optional)
 
@@ -106,7 +133,9 @@ backend.
 2. **Create a scoped Application Key:**
    - Backblaze account → **Application Keys** → **Add a New Application Key**
    - **Allow access to:** the backup bucket only
-   - **Capabilities:** `listBuckets`, `listFiles`, `readFiles`, `writeFiles`
+   - **Capabilities:** `listBuckets`, `listFiles`, `readFiles`,
+     `writeFiles`, `deleteFiles` (`deleteFiles` lets the nightly GFS
+     prune expire old objects)
    - Copy the **keyID** and **applicationKey** — the key is shown only once.
 
 3. **Add the values to `.env`** (in the repo):
@@ -138,10 +167,16 @@ kept and the rclone error is logged to `/var/log/lifeos-backup.log`.
 
 ### Remote retention
 
-The script doesn't delete old B2 objects. Set a **Lifecycle Setting**
-on the bucket (Backblaze console → bucket → Lifecycle Settings) to
-auto-expire — e.g. "keep only the last version, hide/delete after N
-days."
+After each upload the script applies the **same GFS schedule** (see
+[Retention](#retention-grandfather-father-son) above) to the bucket:
+it lists the objects, computes the keep set, and deletes the rest with
+`rclone deletefile --b2-hard-delete`. This needs the `deleteFiles`
+capability on the application key (see step 2). Prune failures are
+non-fatal — logged, and the object is left for the next run to retry.
+
+`--b2-hard-delete` makes the prune a real delete that reclaims storage
+(B2's default is a "hide" that keeps the object as a prior version).
+No bucket Lifecycle Setting is required.
 
 ## Failure alerting (HetrixTools heartbeat)
 

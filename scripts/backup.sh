@@ -8,7 +8,10 @@
 #   - Auth tokens (/srv/lifeos/auth)
 #
 # Output: $BACKUP_DIR/lifeos-YYYYMMDD-HHMMSS.tar.gz
-# Retention: keeps the most recent $RETAIN_COUNT backups (default 14).
+# Retention: grandfather-father-son (GFS). Keeps the newest backup per day
+# for $RETAIN_DAILY days, per ISO week for $RETAIN_WEEKLY weeks and per
+# calendar month for $RETAIN_MONTHLY months — applied to the local copies
+# and, when configured, to the Azure Blob and Backblaze B2 off-site copies.
 #
 # Optional off-site upload to Azure Blob Storage (when AZURE_STORAGE_ACCOUNT,
 # AZURE_CONTAINER, AZURE_SAS_TOKEN are set) and/or Backblaze B2 (when B2_BUCKET,
@@ -59,7 +62,9 @@ load_env "$REPO_DIR/.env"
 
 DATA_PATH="${DATA_PATH:-/srv/lifeos}"
 BACKUP_DIR="${BACKUP_DIR:-${DATA_PATH}/backups}"
-RETAIN_COUNT="${RETAIN_COUNT:-14}"
+RETAIN_DAILY="${RETAIN_DAILY:-7}"      # keep newest backup per day,   last N days
+RETAIN_WEEKLY="${RETAIN_WEEKLY:-8}"    # keep newest backup per week,  last N ISO weeks
+RETAIN_MONTHLY="${RETAIN_MONTHLY:-12}" # keep newest backup per month, last N months
 PG_CONTAINER="${PG_CONTAINER:-lifeos-postgres}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:6334}"
 QDRANT_COLLECTION="${QDRANT_COLLECTION:-documents}"
@@ -74,6 +79,44 @@ B2_KEY_ID="${B2_KEY_ID:-}"
 B2_APPLICATION_KEY="${B2_APPLICATION_KEY:-}"
 B2_PREFIX="${B2_PREFIX:-}"  # optional path prefix inside the bucket
 HETRIX_HEARTBEAT_URL="${HETRIX_HEARTBEAT_URL:-}"  # HetrixTools heartbeat ping URL
+
+# gfs_keep_list — grandfather-father-son retention selector.
+#
+# Reads backup basenames on stdin (lifeos-YYYYMMDD-HHMMSS.tar.gz, any order)
+# and writes the subset to KEEP on stdout: the newest backup in each of the
+# most-recent $RETAIN_DAILY days, $RETAIN_WEEKLY ISO weeks and $RETAIN_MONTHLY
+# months that have a backup. The three keep sets are unioned, so one tarball
+# can satisfy several tiers. Periods are counted by what is *present* in the
+# input, not by the calendar, so a skipped night doesn't shrink the window.
+#
+# Used for the local prune and (with the same windows) the Azure/B2 prunes.
+gfs_keep_list() {
+    local name ts day week month k count=0
+    declare -A newest_day newest_week newest_month
+    while IFS= read -r name; do
+        ts="${name#lifeos-}"; ts="${ts%.tar.gz}"
+        # ts must be YYYYMMDD-HHMMSS; fixed-width fields sort lexically = chronologically.
+        case "$ts" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            *) continue ;;
+        esac
+        day="${ts%%-*}"               # YYYYMMDD
+        month="${day:0:6}"            # YYYYMM
+        week="$(date -u -d "${day:0:4}-${day:4:2}-${day:6:2}" +%G%V 2>/dev/null)" || continue
+        count=$((count + 1))
+        if [ "$ts" '>' "${newest_day[$day]:-}" ];     then newest_day["$day"]="$ts";     fi
+        if [ "$ts" '>' "${newest_week[$week]:-}" ];   then newest_week["$week"]="$ts";   fi
+        if [ "$ts" '>' "${newest_month[$month]:-}" ]; then newest_month["$month"]="$ts"; fi
+    done
+    # No valid backups parsed — nothing to keep. (Guards against `set -u`
+    # tripping on the empty-associative-array expansions below.)
+    if [ "$count" -eq 0 ]; then return 0; fi
+    {
+        printf '%s\n' "${!newest_day[@]}"   | sort -r | head -n "$RETAIN_DAILY"   | while read -r k; do echo "${newest_day[$k]}";   done
+        printf '%s\n' "${!newest_week[@]}"  | sort -r | head -n "$RETAIN_WEEKLY"  | while read -r k; do echo "${newest_week[$k]}";  done
+        printf '%s\n' "${!newest_month[@]}" | sort -r | head -n "$RETAIN_MONTHLY" | while read -r k; do echo "${newest_month[$k]}"; done
+    } | sort -u | sed -e 's/^/lifeos-/' -e 's/$/.tar.gz/'
+}
 
 TS="$(date -u +%Y%m%d-%H%M%S)"
 WORK="$(mktemp -d -t lifeos-backup-XXXXXX)"
@@ -133,6 +176,33 @@ if [ -n "$AZURE_STORAGE_ACCOUNT" ] && [ -n "$AZURE_CONTAINER" ] && [ -n "$AZURE_
         else
             echo "    ! Azure upload failed (azcopy exit $?). Local backup preserved." >&2
         fi
+
+        # ── Azure GFS prune ─────────────────────────────────────────────
+        # List the container, run the same GFS selector, delete the rest.
+        # Non-fatal: a list/delete failure just logs and leaves the blob.
+        echo "  - Pruning old Azure blobs (GFS retention)..."
+        AZ_LIST_URL="https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}?${SAS}"
+        AZ_REMOTE="$(AZCOPY_LOG_LOCATION="${AZCOPY_LOG_LOCATION:-/tmp}" \
+            AZCOPY_JOB_PLAN_LOCATION="${AZCOPY_JOB_PLAN_LOCATION:-/tmp}" \
+            azcopy list "$AZ_LIST_URL" 2>/dev/null \
+            | grep -oE 'lifeos-[0-9]{8}-[0-9]{6}\.tar\.gz' | sort -u || true)"
+        if [ -n "$AZ_REMOTE" ]; then
+            AZ_KEEP="$(printf '%s\n' "$AZ_REMOTE" | gfs_keep_list)"
+            printf '%s\n' "$AZ_REMOTE" | while read -r rn; do
+                [ -z "$rn" ] && continue
+                if printf '%s\n' "$AZ_KEEP" | grep -qxF "$rn"; then continue; fi
+                rblob="$rn"
+                if [ -n "$AZURE_BLOB_PREFIX" ]; then rblob="${AZURE_BLOB_PREFIX%/}/$rn"; fi
+                if AZCOPY_LOG_LOCATION="${AZCOPY_LOG_LOCATION:-/tmp}" \
+                   AZCOPY_JOB_PLAN_LOCATION="${AZCOPY_JOB_PLAN_LOCATION:-/tmp}" \
+                       azcopy remove "https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}/${rblob}?${SAS}" \
+                       --log-level=ERROR --output-level=quiet >/dev/null 2>&1; then
+                    echo "    - Pruned $rn from Azure"
+                else
+                    echo "    ! Azure prune failed for $rn" >&2
+                fi
+            done
+        fi
     fi
 fi
 
@@ -153,15 +223,46 @@ if [ -n "$B2_BUCKET" ] && [ -n "$B2_KEY_ID" ] && [ -n "$B2_APPLICATION_KEY" ]; t
         else
             echo "    ! Backblaze upload failed (rclone exit $?). Local backup preserved." >&2
         fi
+
+        # ── B2 GFS prune ────────────────────────────────────────────────
+        # List the bucket path, run the same GFS selector, delete the rest.
+        # Non-fatal: a list/delete failure just logs and leaves the object.
+        echo "  - Pruning old Backblaze B2 objects (GFS retention)..."
+        B2_REMOTE="$(rclone lsf "$B2_DEST" \
+            --b2-account="$B2_KEY_ID" --b2-key="$B2_APPLICATION_KEY" \
+            --config /dev/null 2>/dev/null \
+            | grep -oE 'lifeos-[0-9]{8}-[0-9]{6}\.tar\.gz' | sort -u || true)"
+        if [ -n "$B2_REMOTE" ]; then
+            B2_KEEP="$(printf '%s\n' "$B2_REMOTE" | gfs_keep_list)"
+            printf '%s\n' "$B2_REMOTE" | while read -r rn; do
+                [ -z "$rn" ] && continue
+                if printf '%s\n' "$B2_KEEP" | grep -qxF "$rn"; then continue; fi
+                # --b2-hard-delete: actually remove the object (and any
+                # prior versions) instead of B2's default "hide", so the
+                # GFS prune reclaims storage like the local/Azure prunes.
+                if rclone deletefile "${B2_DEST}/${rn}" \
+                       --b2-account="$B2_KEY_ID" --b2-key="$B2_APPLICATION_KEY" \
+                       --b2-hard-delete --config /dev/null --log-level ERROR >/dev/null 2>&1; then
+                    echo "    - Pruned $rn from B2"
+                else
+                    echo "    ! B2 prune failed for $rn" >&2
+                fi
+            done
+        fi
     fi
 fi
 
-# ── Retention (local) ───────────────────────────────────────────────────
-ls -1t "${BACKUP_DIR}"/lifeos-*.tar.gz 2>/dev/null | tail -n "+$((RETAIN_COUNT + 1))" | \
-    while read -r old; do
-        echo "  - Pruning $old"
-        rm -f "$old"
-    done
+# ── Retention (local, grandfather-father-son) ───────────────────────────
+echo "  - Applying GFS retention (${RETAIN_DAILY}d / ${RETAIN_WEEKLY}w / ${RETAIN_MONTHLY}m)..."
+KEEP_LOCAL="$(ls -1 "${BACKUP_DIR}"/lifeos-*.tar.gz 2>/dev/null \
+    | sed 's#.*/##' | gfs_keep_list || true)"
+for path in "${BACKUP_DIR}"/lifeos-*.tar.gz; do
+    [ -e "$path" ] || continue
+    base="${path##*/}"
+    if printf '%s\n' "$KEEP_LOCAL" | grep -qxF "$base"; then continue; fi
+    echo "  - Pruning $base"
+    rm -f "$path"
+done
 
 echo "[$(date -Iseconds)] Backup complete."
 
