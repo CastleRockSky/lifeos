@@ -113,6 +113,43 @@ async def get_stats():
     }
 
 
+@router.get("/system/attention")
+async def get_attention():
+    """Triage counts for the dashboard 'Needs Attention' and 'Processing' cards."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        uncategorized = await conn.fetchval(
+            "SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL AND domain IS NULL"
+        )
+        undated = await conn.fetchval(
+            "SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL "
+            "AND document_date IS NULL AND ai_status = 'complete'"
+        )
+        needs_review = await conn.fetchval(
+            "SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL "
+            "AND review_status = 'needs_review'"
+        )
+        duplicates = await conn.fetchval("""
+            SELECT COUNT(*) FROM duplicate_flags df
+            JOIN documents d ON d.id = df.document_id     AND d.deleted_at IS NULL
+            JOIN documents o ON o.id = df.duplicate_of_id AND o.deleted_at IS NULL
+            WHERE df.status = 'pending'
+        """)
+        processing = await conn.fetchval(
+            "SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL "
+            "AND ai_status IN ('pending', 'analyzing')"
+        )
+    return {
+        "data": {
+            "uncategorized": uncategorized,
+            "undated": undated,
+            "needs_review": needs_review,
+            "duplicates": duplicates,
+            "processing": processing,
+        }
+    }
+
+
 @router.get("/calendar/status")
 async def calendar_status():
     """Google Calendar sync status (Phase 10)."""

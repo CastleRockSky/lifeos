@@ -226,6 +226,7 @@ async def list_documents(
     category: str = Query(None),
     subject_id: str = Query(None),
     q: str = Query(None),
+    flag: str = Query(None),  # uncategorized | undated | needs_review (triage filters)
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
 ):
@@ -233,6 +234,13 @@ async def list_documents(
     conditions = ["d.deleted_at IS NULL"]
     params = []
     idx = 0
+
+    if flag == "uncategorized":
+        conditions.append("d.domain IS NULL")
+    elif flag == "undated":
+        conditions.append("d.document_date IS NULL AND d.ai_status = 'complete'")
+    elif flag == "needs_review":
+        conditions.append("d.review_status = 'needs_review'")
 
     if domain:
         idx += 1; conditions.append(f"d.domain = ${idx}"); params.append(domain)

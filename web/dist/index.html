@@ -326,6 +326,20 @@
         .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
         .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.2rem; }
 
+        .triage-tile {
+            background: var(--surface); border: 1px solid rgba(245,158,11,0.45);
+            border-radius: var(--radius); padding: 1rem;
+            cursor: pointer; transition: border-color var(--transition);
+        }
+        .triage-tile:hover { border-color: var(--warning); }
+        .triage-tile .stat-value { color: var(--warning); }
+        .proc-banner {
+            display: flex; align-items: center; gap: 0.5rem;
+            background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3);
+            border-radius: var(--radius); padding: 0.6rem 1rem;
+            font-size: 0.85rem; color: var(--text-muted);
+        }
+
         /* ── Action Items ──────────────────────────────── */
         .action-item {
             background: var(--surface); border: 1px solid var(--border);
@@ -463,7 +477,7 @@
         <div class="sidebar-section">
             <div class="sidebar-label">Navigation</div>
             <button class="nav-item" :class="{ active: view === 'home' }" @click="navigate('home')">Dashboard</button>
-            <button class="nav-item" :class="{ active: view === 'documents' && !filterDomain }" @click="filterDomain = null; navigate('documents')">All Documents</button>
+            <button class="nav-item" :class="{ active: view === 'documents' && !filterDomain && !docFlag }" @click="filterDomain = null; docFlag = null; navigate('documents')">All Documents</button>
             <button class="nav-item" :class="{ active: view === 'actions' }" @click="navigate('actions')">
                 Actions
                 <span class="count-alert" x-show="stats?.pending_actions > 0" x-text="stats?.pending_actions"></span>
@@ -510,7 +524,7 @@
             <div class="sidebar-label">Domains</div>
             <template x-for="d in domains" :key="d">
                 <button class="nav-item" :class="{ active: view === 'documents' && filterDomain === d }"
-                        @click="filterDomain = d; navigate('documents')">
+                        @click="filterDomain = d; docFlag = null; navigate('documents')">
                     <span class="domain-dot" :style="'background:' + domainColor(d)"></span>
                     <span x-text="d" style="text-transform: capitalize;"></span>
                     <span class="count" x-text="stats?.by_domain?.[d] || 0"></span>
@@ -552,6 +566,43 @@
                         <div class="stat-label">Needs Review</div>
                     </div>
                 </div>
+
+                <!-- Processing (live) -->
+                <template x-if="(attention.processing || 0) > 0">
+                    <div class="proc-banner" style="margin-bottom: 1.5rem;">
+                        <span>⏳</span>
+                        <span x-text="attention.processing + ' document' + (attention.processing === 1 ? '' : 's') + ' being processed — this view refreshes automatically.'"></span>
+                    </div>
+                </template>
+
+                <!-- Needs Attention -->
+                <template x-if="attentionTotal() > 0">
+                    <div style="margin-bottom: 1.5rem;">
+                        <div class="page-header"><h2>Needs Attention</h2></div>
+                        <div class="stats-grid">
+                            <div class="triage-tile" @click="navigate('review')"
+                                 x-show="(attention.needs_review || 0) > 0">
+                                <div class="stat-value" x-text="attention.needs_review || 0"></div>
+                                <div class="stat-label">Low confidence — review</div>
+                            </div>
+                            <div class="triage-tile" @click="navigate('duplicates')"
+                                 x-show="(attention.duplicates || 0) > 0">
+                                <div class="stat-value" x-text="attention.duplicates || 0"></div>
+                                <div class="stat-label">Possible duplicates</div>
+                            </div>
+                            <div class="triage-tile" @click="openTriage('uncategorized')"
+                                 x-show="(attention.uncategorized || 0) > 0">
+                                <div class="stat-value" x-text="attention.uncategorized || 0"></div>
+                                <div class="stat-label">Uncategorized</div>
+                            </div>
+                            <div class="triage-tile" @click="openTriage('undated')"
+                                 x-show="(attention.undated || 0) > 0">
+                                <div class="stat-value" x-text="attention.undated || 0"></div>
+                                <div class="stat-label">No document date</div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
 
                 <!-- Expiration Alerts -->
                 <template x-if="expirations.length > 0">
@@ -681,10 +732,15 @@
             <div>
                 <div class="page-header">
                     <h2>
-                        <span x-show="!filterDomain">All Documents</span>
+                        <span x-show="!filterDomain && !docFlag">All Documents</span>
                         <span x-show="filterDomain" x-text="(filterDomain || '').charAt(0).toUpperCase() + (filterDomain || '').slice(1) + ' Documents'"></span>
+                        <span x-show="docFlag" x-text="docFlag === 'uncategorized' ? 'Uncategorized Documents' : 'Documents Without a Date'"></span>
                     </h2>
-                    <button class="btn btn-primary" @click="showUpload = true">Upload</button>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <button class="btn btn-sm" x-show="docFlag"
+                                @click="docFlag = null; page = 1; loadDocuments()">Clear filter</button>
+                        <button class="btn btn-primary" @click="showUpload = true">Upload</button>
+                    </div>
                 </div>
 
                 <div class="card-grid">
@@ -1109,6 +1165,45 @@
 
                 <div class="empty-state" x-show="reviewDocs.length === 0 && !loading">
                     <p>No documents need review. All clear!</p>
+                </div>
+                <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
+        <!-- Possible Duplicates -->
+        <template x-if="view === 'duplicates'">
+            <div>
+                <div class="page-header"><h2>Possible Duplicates</h2></div>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem;">
+                    Documents flagged as possible duplicates of an earlier upload. Open either to
+                    compare, then keep both or delete the redundant one.
+                </p>
+
+                <template x-for="dup in duplicates" :key="dup.id">
+                    <div class="action-item">
+                        <div class="action-item-content">
+                            <div class="action-item-title">
+                                <span class="qa-source-link" style="cursor:pointer;"
+                                      @click="viewDocument(dup.document.id)" x-text="dup.document.title"></span>
+                            </div>
+                            <div class="action-item-meta">
+                                <span class="badge"
+                                      x-text="dup.match_type === 'exact' ? 'identical file' : (dup.similarity_score * 100).toFixed(0) + '% match'"></span>
+                                <span>duplicate of</span>
+                                <span class="qa-source-link" style="cursor:pointer;"
+                                      @click="viewDocument(dup.duplicate_of.id)" x-text="dup.duplicate_of.title"></span>
+                                <span class="badge" :class="'badge-' + dup.document.domain"
+                                      x-show="dup.document.domain" x-text="dup.document.domain"></span>
+                            </div>
+                        </div>
+                        <div class="action-item-actions">
+                            <button class="btn btn-xs" @click="dismissDuplicateRow(dup.id)">Not a duplicate</button>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="empty-state" x-show="duplicates.length === 0 && !loading">
+                    <p>No duplicate flags. Nothing to review.</p>
                 </div>
                 <div class="loading" x-show="loading">Loading...</div>
             </div>
@@ -2455,6 +2550,10 @@ function lifeos() {
         searchResults: [],
         documents: [],
         thumbFailed: {},
+        attention: {},
+        docFlag: null,
+        duplicates: [],
+        _attentionPoll: null,
         totalDocs: 0,
         page: 1,
         perPage: 20,
@@ -2579,15 +2678,24 @@ function lifeos() {
                 this.loadOverdue(),
                 this.loadExpirations(),
                 this.loadEmailStatus(),
+                this.loadAttention(),
             ]);
+            // The initial view is the dashboard — keep the triage card live.
+            this._attentionPoll = setInterval(() => this.loadAttention(), 10000);
         },
 
         navigate(v) {
             clearInterval(this._aiPoll);
+            clearInterval(this._attentionPoll);
             this.prevView = this.view;
             this.view = v;
             if (v === 'documents') this.loadDocuments();
-            if (v === 'home') { this.loadStats(); this.loadDocuments(); this.loadOverdue(); this.loadExpirations(); this.loadEmailStatus(); }
+            if (v === 'duplicates') this.loadDuplicates();
+            if (v === 'home') {
+                this.loadStats(); this.loadDocuments(); this.loadOverdue();
+                this.loadExpirations(); this.loadEmailStatus(); this.loadAttention();
+                this._attentionPoll = setInterval(() => this.loadAttention(), 10000);
+            }
             if (v === 'subjects') this.loadSubjects();
             if (v === 'actions') this.loadActions();
             if (v === 'review') this.loadReviewQueue();
@@ -2682,11 +2790,45 @@ function lifeos() {
             try {
                 let url = `/api/documents?page=${this.page}&per_page=${this.perPage}`;
                 if (this.filterDomain) url += `&domain=${this.filterDomain}`;
+                if (this.docFlag) url += `&flag=${this.docFlag}`;
                 const res = await this.api(url);
                 this.documents = res.data;
                 this.totalDocs = res.meta.total;
             } catch {}
             this.loading = false;
+        },
+
+        async loadAttention() {
+            try { this.attention = (await this.api('/api/system/attention')).data; } catch {}
+        },
+
+        attentionTotal() {
+            const a = this.attention || {};
+            return (a.needs_review || 0) + (a.duplicates || 0)
+                 + (a.uncategorized || 0) + (a.undated || 0);
+        },
+
+        openTriage(flag) {
+            this.filterDomain = null;
+            this.docFlag = flag;
+            this.page = 1;
+            this.navigate('documents');
+        },
+
+        async loadDuplicates() {
+            this.loading = true;
+            try { this.duplicates = (await this.api('/api/documents/duplicates')).data; }
+            catch {}
+            this.loading = false;
+        },
+
+        async dismissDuplicateRow(flagId) {
+            try {
+                await this.api(`/api/documents/duplicates/${flagId}/dismiss`, { method: 'POST' });
+                this.duplicates = this.duplicates.filter(d => d.id !== flagId);
+                if (this.attention.duplicates) this.attention.duplicates--;
+                this.toast('Duplicate flag dismissed');
+            } catch {}
         },
 
         async loadSubjects() {
