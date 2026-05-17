@@ -238,106 +238,50 @@ tar -tzvf "$(ls -1t /srv/lifeos/backups/lifeos-*.tar.gz | head -1)" | head -20
 
 ## Restore
 
-Backup is a single tarball with four pieces. Restore is manual — these
-are the steps for a full disaster recovery onto a fresh host.
-
-### 1. Pre-flight
+A backup is a single tarball with four pieces (PostgreSQL dump, Qdrant
+snapshot, document files, auth tokens). `scripts/restore.sh` restores
+any subset of them interactively.
 
 ```bash
-# On the new host
+sudo scripts/restore.sh                       # pick from local backups (or pull from B2)
+sudo scripts/restore.sh /path/to/lifeos-….tar.gz   # restore a specific tarball
+```
+
+The script:
+
+1. **Selects a backup** — with no argument it lists the tarballs in
+   `${DATA_PATH}/backups/` to choose from, and (when B2 is configured
+   in `.env`) offers a `[b]` option to pull the newest off-site copy.
+2. **Confirms each component separately** — PostgreSQL, Qdrant,
+   document files, auth tokens. Skipping any of them is safe, so you
+   can do a partial restore (e.g. just the database).
+3. **PostgreSQL** — stops the API container, then `DROP DATABASE …
+   WITH (FORCE)` + `CREATE DATABASE` + loads the dump in a single
+   transaction (`ON_ERROR_STOP`, so a bad dump rolls back cleanly).
+4. **Qdrant** — uploads the snapshot to the collection's
+   `snapshots/upload` endpoint (`priority=snapshot`).
+5. **File trees** — `rsync` (or `cp -a`) the `files/` and `auth/`
+   trees back into `${DATA_PATH}`.
+6. **Restarts** the stack and verifies `/api/health` + `/api/stats`.
+
+It must run as root (it writes under `/srv/lifeos` and drives docker)
+and reads `.env` for the database/Qdrant/B2 settings.
+
+### Full disaster recovery onto a fresh host
+
+```bash
 git clone https://github.com/CastleRockSky/lifeos.git /opt/lifeos
 cd /opt/lifeos
 sudo mkdir -p /srv/lifeos/{postgres,qdrant,documents/files,documents/inbox,auth,backups}
 cp .env.example .env
-# Fill in POSTGRES_PASSWORD, ANTHROPIC_API_KEY, SECRET_KEY, plus Azure vars if you want
+# Fill in POSTGRES_PASSWORD, ANTHROPIC_API_KEY, SECRET_KEY, and the B2 vars
+
+sudo docker compose up -d        # bring the (empty) stack up
+sudo scripts/restore.sh          # choose [b] to pull the newest backup from B2
 ```
 
-### 2. Bring up the stack (empty)
-
-```bash
-sudo docker compose up -d
-# Wait for healthchecks
-sudo docker compose ps
-```
-
-### 3. Pull the most recent backup off-site (if local copies are gone)
-
-**From Azure Blob:**
-
-```bash
-# Quick one-liner using azcopy (auto-installed by install-backup-cron.sh).
-# Lists newest 5 blobs:
-azcopy list "https://ezekielbackupscrs.blob.core.windows.net/lifeos-db?${AZURE_SAS_TOKEN}" \
-    | sort -k4 -r | head -5
-
-# Download the one you want:
-azcopy copy \
-    "https://ezekielbackupscrs.blob.core.windows.net/lifeos-db/lifeos-20260512-090000.tar.gz?${AZURE_SAS_TOKEN}" \
-    /tmp/restore.tar.gz
-```
-
-**From Backblaze B2** (rclone, creds from `.env`):
-
-```bash
-# List newest files in the bucket:
-rclone lsl ":b2:${B2_BUCKET}/${B2_PREFIX}" \
-    --b2-account="$B2_KEY_ID" --b2-key="$B2_APPLICATION_KEY" \
-    --config /dev/null | sort -k2 -r | head -5
-
-# Download the one you want:
-rclone copy ":b2:${B2_BUCKET}/${B2_PREFIX}/lifeos-20260512-090000.tar.gz" /tmp/ \
-    --b2-account="$B2_KEY_ID" --b2-key="$B2_APPLICATION_KEY" --config /dev/null
-mv /tmp/lifeos-20260512-090000.tar.gz /tmp/restore.tar.gz
-```
-
-### 4. Extract
-
-```bash
-mkdir -p /tmp/restore && tar -xzf /tmp/restore.tar.gz -C /tmp/restore
-ls /tmp/restore/   # expect: auth/  files/  postgres.sql  qdrant-snapshot.snapshot
-```
-
-### 5. Restore PostgreSQL
-
-```bash
-# Drop and recreate the schema (the dump includes CREATE TABLE statements)
-sudo docker exec -i lifeos-postgres psql -U lifeos -d postgres -c "DROP DATABASE IF EXISTS lifeos;"
-sudo docker exec -i lifeos-postgres psql -U lifeos -d postgres -c "CREATE DATABASE lifeos;"
-sudo docker exec -i lifeos-postgres psql -U lifeos -d lifeos < /tmp/restore/postgres.sql
-```
-
-### 6. Restore Qdrant
-
-```bash
-# Stop API so it doesn't reconnect mid-restore
-sudo docker compose stop api
-
-# Upload the snapshot back to Qdrant via the recover endpoint
-curl -X PUT "http://localhost:6334/collections/documents/snapshots/recover" \
-    -H "Content-Type: application/json" \
-    -d "{\"location\": \"file:///tmp/qdrant-snapshot.snapshot\"}"
-# (Or: docker cp the .snapshot into the qdrant container's snapshots dir first.)
-
-sudo docker compose start api
-```
-
-### 7. Restore file trees
-
-```bash
-sudo cp -a /tmp/restore/files/. /srv/lifeos/documents/files/
-sudo cp -a /tmp/restore/auth/.  /srv/lifeos/auth/
-sudo chown -R root:root /srv/lifeos/auth
-```
-
-### 8. Verify
-
-```bash
-curl http://localhost:8000/api/health
-curl http://localhost:8000/api/stats   # documents count should match pre-restore
-```
-
-If anything looks off, the original tarball is still in `/tmp/` —
-nothing the restore does is irreversible without source data.
+If anything looks off, the source tarball is untouched — nothing the
+restore does is irreversible without the original data.
 
 ## Security notes
 
