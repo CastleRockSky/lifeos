@@ -13,11 +13,13 @@ from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException, Req
 from fastapi.responses import FileResponse
 
 from database import get_pool
+from config import get_settings
 from constants import DOMAINS, ALL_CATEGORIES
 from helpers import get_user_email, audit_log
 from models import DocumentUpdate
 from search import delete_document_vectors
 from ingest import ingest_file, run_ai_analysis
+from thumbnails import get_or_create_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -487,6 +489,29 @@ async def download_document(
         filename=row["original_filename"],
         media_type=row["mime_type"],
         content_disposition_type="attachment" if download else "inline",
+    )
+
+
+@router.get("/{document_id}/thumbnail")
+async def document_thumbnail(document_id: str):
+    """On-demand WebP thumbnail (disk-cached). 404 when not previewable."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT file_path, mime_type FROM documents WHERE id = $1 AND deleted_at IS NULL",
+            uuid.UUID(document_id),
+        )
+    if not row:
+        raise HTTPException(404, "Document not found")
+    thumb = get_or_create_thumbnail(
+        row["file_path"], row["mime_type"], document_id, get_settings().upload_dir
+    )
+    if not thumb:
+        raise HTTPException(404, "No thumbnail available")
+    return FileResponse(
+        thumb,
+        media_type="image/webp",
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 

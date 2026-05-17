@@ -181,6 +181,18 @@
             -webkit-box-orient: vertical; overflow: hidden;
         }
 
+        .doc-thumb-wrap {
+            width: 100%; height: 120px;
+            margin-bottom: 0.5rem; border-radius: 4px; overflow: hidden;
+            background: rgba(0,0,0,0.22);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .doc-thumb {
+            width: 100%; height: 100%;
+            object-fit: cover; object-position: top center;
+        }
+        .doc-thumb-fallback { font-size: 2.4rem; opacity: 0.45; }
+
         .doc-card-meta {
             display: flex; align-items: center; gap: 0.5rem;
             font-size: 0.7rem; color: var(--text-muted);
@@ -638,6 +650,14 @@
                 <div class="card-grid">
                     <template x-for="doc in documents.slice(0, 6)" :key="doc.id">
                         <div class="card" @click="viewDocument(doc.id)">
+                            <div class="doc-thumb-wrap">
+                                <img class="doc-thumb" loading="lazy" alt=""
+                                     :src="'/api/documents/' + doc.id + '/thumbnail'"
+                                     x-show="!thumbFailed[doc.id]"
+                                     @error="thumbFailed[doc.id] = true">
+                                <div class="doc-thumb-fallback" x-show="thumbFailed[doc.id]"
+                                     x-text="fileTypeIcon(doc.file_type)"></div>
+                            </div>
                             <div class="doc-card-title" x-text="doc.title"></div>
                             <div class="doc-card-meta">
                                 <span class="badge" :class="'badge-' + doc.domain" x-text="doc.domain" x-show="doc.domain"></span>
@@ -670,6 +690,14 @@
                 <div class="card-grid">
                     <template x-for="doc in documents" :key="doc.id">
                         <div class="card" @click="viewDocument(doc.id)">
+                            <div class="doc-thumb-wrap">
+                                <img class="doc-thumb" loading="lazy" alt=""
+                                     :src="'/api/documents/' + doc.id + '/thumbnail'"
+                                     x-show="!thumbFailed[doc.id]"
+                                     @error="thumbFailed[doc.id] = true">
+                                <div class="doc-thumb-fallback" x-show="thumbFailed[doc.id]"
+                                     x-text="fileTypeIcon(doc.file_type)"></div>
+                            </div>
                             <div class="doc-card-title" x-text="doc.title"></div>
                             <div class="doc-card-meta">
                                 <span class="badge" :class="'badge-' + doc.domain" x-text="doc.domain" x-show="doc.domain"></span>
@@ -2426,6 +2454,7 @@ function lifeos() {
         lastSearchQuery: '',
         searchResults: [],
         documents: [],
+        thumbFailed: {},
         totalDocs: 0,
         page: 1,
         perPage: 20,
@@ -3555,6 +3584,10 @@ function lifeos() {
             let size = b;
             while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
             return size.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+        },
+
+        fileTypeIcon(t) {
+            return { pdf: '📄', image: '🖼️', text: '📝', email: '✉️' }[t] || '📎';
         },
 
         formatDate(iso) {
