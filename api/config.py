@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"
     allowed_origins: str = "*"
 
+    # Deduplication — two-layer (exact SHA256 + semantic) duplicate detection.
+    dedup_enabled: bool = True
+    dedup_semantic_threshold: float = 0.92   # cosine similarity to flag a near-dup
+    dedup_date_diff_days: int = 5            # -1 disabled, 0 strict, N-day tolerance
+
     # Embedding model (local, no API needed)
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384

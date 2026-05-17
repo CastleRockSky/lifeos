@@ -35,6 +35,7 @@ CREATE TABLE documents (
     ocr_applied BOOLEAN DEFAULT false,
     ocr_confidence FLOAT,
     page_count INTEGER,
+    file_hash VARCHAR(64),                  -- SHA256 of the file bytes (exact-dup detection)
     embedding_status VARCHAR(50) DEFAULT 'pending', -- pending, complete, failed
     ai_summary TEXT,
     ai_extracted_data JSONB,
@@ -207,6 +208,20 @@ CREATE TABLE agent_api_keys (
     deleted_at TIMESTAMPTZ
 );
 
+-- Duplicate detection: each row flags `document_id` as a possible duplicate
+-- of the earlier `duplicate_of_id`. Flags are advisory — never auto-deleted.
+CREATE TABLE duplicate_flags (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID NOT NULL REFERENCES documents(id),
+    duplicate_of_id UUID NOT NULL REFERENCES documents(id),
+    match_type VARCHAR(20) NOT NULL,        -- 'exact' | 'semantic'
+    similarity_score REAL NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending | dismissed
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ,
+    UNIQUE (document_id, duplicate_of_id)
+);
+
 -- ── Indexes ──────────────────────────────────────────────────────────────
 
 -- Documents
@@ -221,6 +236,12 @@ CREATE INDEX idx_documents_text_search ON documents
 CREATE INDEX idx_documents_ai_status ON documents(ai_status);
 CREATE INDEX idx_documents_review_status ON documents(review_status) WHERE review_status = 'needs_review';
 CREATE INDEX idx_documents_expiration ON documents(expiration_date) WHERE expiration_date IS NOT NULL;
+CREATE INDEX idx_documents_file_hash ON documents(file_hash) WHERE file_hash IS NOT NULL;
+
+-- Duplicate flags
+CREATE INDEX idx_duplicate_flags_document ON duplicate_flags(document_id);
+CREATE INDEX idx_duplicate_flags_dup_of ON duplicate_flags(duplicate_of_id);
+CREATE INDEX idx_duplicate_flags_pending ON duplicate_flags(status) WHERE status = 'pending';
 
 -- Document Chunks
 CREATE INDEX idx_chunks_document ON document_chunks(document_id);

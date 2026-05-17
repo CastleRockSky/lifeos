@@ -737,6 +737,26 @@
                         <div style="color: var(--text-muted);">Document is being analyzed by AI. This will update automatically.</div>
                     </div>
 
+                    <!-- Duplicate warning -->
+                    <template x-if="currentDoc?.duplicate_flags?.length > 0">
+                        <div class="ai-summary-box" style="background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.35);">
+                            <div class="label" style="color: var(--warning);">⚠ Possible duplicate</div>
+                            <template x-for="f in currentDoc.duplicate_flags" :key="f.id">
+                                <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.4rem; flex-wrap:wrap;">
+                                    <span style="color:var(--text-muted);"
+                                          x-text="f.match_type === 'exact' ? 'Identical file to' : 'Looks very similar to'"></span>
+                                    <a class="qa-source-link" style="cursor:pointer;"
+                                       @click="viewDocument(f.duplicate_of_id)"
+                                       x-text="f.duplicate_of_title || 'another document'"></a>
+                                    <span class="badge" x-show="f.duplicate_of_date" x-text="f.duplicate_of_date"></span>
+                                    <span class="badge"
+                                          x-text="f.match_type === 'exact' ? 'exact' : (f.similarity_score * 100).toFixed(0) + '% match'"></span>
+                                    <button class="btn btn-sm" @click="dismissDuplicate(f.id)">Not a duplicate</button>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
                     <div class="detail-grid">
                         <div>
                             <!-- File preview -->
@@ -3354,6 +3374,17 @@ function lifeos() {
             this.filterDomain = null;
             this.page = 1;
             this.navigate('documents');
+        },
+
+        async dismissDuplicate(flagId) {
+            try {
+                await this.api(`/api/documents/duplicates/${flagId}/dismiss`, { method: 'POST' });
+                if (this.currentDoc?.duplicate_flags) {
+                    this.currentDoc.duplicate_flags =
+                        this.currentDoc.duplicate_flags.filter(f => f.id !== flagId);
+                }
+                this.toast('Duplicate flag dismissed');
+            } catch {}
         },
 
         async deleteDocument(id) {

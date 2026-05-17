@@ -296,6 +296,65 @@ async def list_documents(
     }
 
 
+# ── Duplicate flags ─────────────────────────────────────────────────────
+# Declared before /{document_id} so "duplicates" isn't taken as a doc id.
+
+@router.get("/duplicates")
+async def list_duplicate_flags():
+    """All pending duplicate flags — the newer document paired with its original."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT df.id, df.match_type, df.similarity_score, df.created_at,
+                   d.id AS doc_id, d.title AS doc_title,
+                   d.document_date AS doc_date, d.domain AS doc_domain,
+                   o.id AS dup_id, o.title AS dup_title, o.document_date AS dup_date
+            FROM duplicate_flags df
+            JOIN documents d ON d.id = df.document_id     AND d.deleted_at IS NULL
+            JOIN documents o ON o.id = df.duplicate_of_id AND o.deleted_at IS NULL
+            WHERE df.status = 'pending'
+            ORDER BY df.created_at DESC
+        """)
+    return {
+        "data": [
+            {
+                "id": str(r["id"]),
+                "match_type": r["match_type"],
+                "similarity_score": r["similarity_score"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "document": {
+                    "id": str(r["doc_id"]),
+                    "title": r["doc_title"],
+                    "domain": r["doc_domain"],
+                    "document_date": r["doc_date"].isoformat() if r["doc_date"] else None,
+                },
+                "duplicate_of": {
+                    "id": str(r["dup_id"]),
+                    "title": r["dup_title"],
+                    "document_date": r["dup_date"].isoformat() if r["dup_date"] else None,
+                },
+            }
+            for r in rows
+        ],
+        "meta": {"total": len(rows)},
+    }
+
+
+@router.post("/duplicates/{flag_id}/dismiss")
+async def dismiss_duplicate_flag(flag_id: str):
+    """Dismiss a duplicate flag — mark the pair as reviewed and not a duplicate."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("""
+            UPDATE duplicate_flags
+            SET status = 'dismissed', resolved_at = NOW()
+            WHERE id = $1 AND status = 'pending'
+        """, uuid.UUID(flag_id))
+    if result == "UPDATE 0":
+        raise HTTPException(404, "Duplicate flag not found or already resolved")
+    return {"data": {"id": flag_id, "status": "dismissed"}}
+
+
 @router.get("/{document_id}")
 async def get_document(document_id: str):
     pool = get_pool()
@@ -322,6 +381,17 @@ async def get_document(document_id: str):
             FROM action_items
             WHERE source_document_id = $1 AND deleted_at IS NULL
             ORDER BY due_date NULLS LAST
+        """, did)
+
+        # Pending duplicate flags — documents this one was flagged against.
+        dup_flags = await conn.fetch("""
+            SELECT df.id, df.match_type, df.similarity_score,
+                   o.id AS duplicate_of_id, o.title AS duplicate_of_title,
+                   o.document_date AS duplicate_of_date
+            FROM duplicate_flags df
+            JOIN documents o ON o.id = df.duplicate_of_id AND o.deleted_at IS NULL
+            WHERE df.document_id = $1 AND df.status = 'pending'
+            ORDER BY df.similarity_score DESC
         """, did)
 
     return {
@@ -376,6 +446,18 @@ async def get_document(document_id: str):
                     "created_at": a["created_at"].isoformat(),
                 }
                 for a in actions
+            ],
+            "duplicate_flags": [
+                {
+                    "id": str(f["id"]),
+                    "match_type": f["match_type"],
+                    "similarity_score": f["similarity_score"],
+                    "duplicate_of_id": str(f["duplicate_of_id"]),
+                    "duplicate_of_title": f["duplicate_of_title"],
+                    "duplicate_of_date": f["duplicate_of_date"].isoformat()
+                        if f["duplicate_of_date"] else None,
+                }
+                for f in dup_flags
             ],
         }
     }

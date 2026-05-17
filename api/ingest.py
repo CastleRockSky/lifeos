@@ -5,6 +5,7 @@ Used by both the upload endpoint and the inbox watcher.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import uuid
@@ -92,6 +93,9 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                     "UPDATE documents SET ai_status = 'skipped' WHERE id = $1",
                     uuid.UUID(doc_id),
                 )
+            # A text-less scan can still be an exact-hash duplicate.
+            from dedup import flag_duplicates_for_document
+            await flag_duplicates_for_document(doc_id)
             return
 
         # Import here to avoid circular imports at module load
@@ -397,6 +401,12 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
             except Exception as learn_err:
                 logger.warning(f"Sender mapping update failed for {doc_id}: {learn_err}")
 
+        # ── Duplicate detection ───────────────────────────────────────
+        # Runs here (not at ingest time) so document_date is known and the
+        # date-aware filter can apply. Never raises.
+        from dedup import flag_duplicates_for_document
+        await flag_duplicates_for_document(doc_id)
+
     except Exception as e:
         logger.error(f"AI analysis failed for {doc_id}: {e}")
         try:
@@ -451,6 +461,7 @@ async def ingest_file(
         await dst.write(content)
 
     file_size = len(content)
+    file_hash = hashlib.sha256(content).hexdigest()
     mime_type = magic.from_buffer(content[:8192], mime=True)
 
     from helpers import file_type_from_mime
@@ -474,16 +485,16 @@ async def ingest_file(
                 id, title, file_path, original_filename, file_size_bytes,
                 mime_type, file_type, domain, category, subject_id, source,
                 content_text, text_length, ocr_applied, ocr_confidence, page_count,
-                embedding_status, ai_status, tags, uploaded_by
+                embedding_status, ai_status, tags, uploaded_by, file_hash
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                $12, $13, $14, $15, $16, $17, $18, $19, $20
+                $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
             )
         """, doc_id, doc_title, dest_path, original_filename or source_path.name,
             file_size, mime_type, f_type, domain, category, sid, source,
             content_text, len(content_text) if content_text else 0,
             ocr_applied, ocr_confidence, page_count,
-            "pending", "pending", tag_list, uploaded_by)
+            "pending", "pending", tag_list, uploaded_by, file_hash)
 
         for chunk in chunks:
             await conn.execute("""
