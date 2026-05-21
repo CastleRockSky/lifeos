@@ -18,7 +18,7 @@ from config import get_settings
 from constants import DOMAINS, ALL_CATEGORIES
 from helpers import get_user_email, audit_log
 from models import DocumentUpdate
-from search import delete_document_vectors
+from search import delete_document_vectors, reindex_notes
 from ingest import ingest_file, run_ai_analysis
 from thumbnails import get_or_create_thumbnail
 
@@ -252,7 +252,10 @@ async def list_documents(
     if q:
         idx += 1
         conditions.append(f"""
-            to_tsvector('english', COALESCE(d.title, '') || ' ' || COALESCE(d.content_text, ''))
+            to_tsvector('english',
+                COALESCE(d.title, '') || ' ' ||
+                COALESCE(d.content_text, '') || ' ' ||
+                COALESCE(d.notes, ''))
             @@ plainto_tsquery('english', ${idx})
         """)
         params.append(q)
@@ -429,6 +432,7 @@ async def get_document(document_id: str):
             "ai_status": row["ai_status"],
             "ai_confidence": row["ai_confidence"],
             "ai_suggestion": row["ai_suggestion"],
+            "notes": row["notes"],
             "review_status": row["review_status"],
             "document_date": row["document_date"].isoformat() if row["document_date"] else None,
             "expiration_date": row["expiration_date"].isoformat() if row["expiration_date"] else None,
@@ -551,7 +555,7 @@ async def update_document(document_id: str, body: DocumentUpdate, request: Reque
 
     async with pool.acquire() as conn:
         existing = await conn.fetchrow(
-            "SELECT id FROM documents WHERE id = $1 AND deleted_at IS NULL", did
+            "SELECT id, domain FROM documents WHERE id = $1 AND deleted_at IS NULL", did
         )
         if not existing:
             raise HTTPException(404, "Document not found")
@@ -568,11 +572,21 @@ async def update_document(document_id: str, body: DocumentUpdate, request: Reque
                 document_date = COALESCE($8, document_date),
                 expiration_date = COALESCE($9, expiration_date),
                 ai_summary = COALESCE($10, ai_summary),
-                ai_suggestion = CASE WHEN $11 THEN NULL ELSE ai_suggestion END
+                ai_suggestion = CASE WHEN $11 THEN NULL ELSE ai_suggestion END,
+                notes = COALESCE($12, notes)
             WHERE id = $1
         """, did, body.title, body.domain, body.category, sid, body.tags,
              body.review_status, doc_date, exp_date, body.summary,
-             bool(body.clear_suggestion))
+             bool(body.clear_suggestion), body.notes)
+
+    # When notes change, re-embed them so they're semantically searchable.
+    # Keyword search picks them up automatically via the documents tsvector.
+    # A Qdrant hiccup must not fail the save — notes are already persisted.
+    if body.notes is not None:
+        try:
+            reindex_notes(document_id, body.notes, body.domain or existing["domain"])
+        except Exception as e:
+            logger.warning(f"Notes re-index failed for {document_id}: {e}")
 
     await audit_log("update", get_user_email(request), "documents", document_id)
     return {"data": {"id": document_id, "updated": True}}

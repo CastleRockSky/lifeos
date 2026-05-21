@@ -29,6 +29,7 @@ class DocumentUpdate(BaseModel):
     document_date: Optional[str] = None
     expiration_date: Optional[str] = None
     summary: Optional[str] = None
+    notes: Optional[str] = None
     clear_suggestion: Optional[bool] = None
 
 

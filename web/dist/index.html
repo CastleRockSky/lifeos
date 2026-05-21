@@ -930,6 +930,21 @@
                                      style="max-width:100%; border-radius:var(--radius);">
                             </div>
 
+                            <!-- User notes -->
+                            <div class="form-group" style="margin-bottom:1rem;">
+                                <h3 style="font-size:0.85rem; margin-bottom:0.5rem; color:var(--text-muted);">Notes</h3>
+                                <textarea x-model="editNotes" rows="4"
+                                          placeholder="Add context or thoughts about this document — saved with it and searchable."></textarea>
+                                <div style="display:flex; gap:0.5rem; align-items:center; margin-top:0.4rem;"
+                                     x-show="editNotes !== (currentDoc?.notes || '')">
+                                    <button class="btn btn-sm btn-primary" @click="saveNotes()" :disabled="savingNotes">
+                                        <span x-show="!savingNotes">Save Notes</span>
+                                        <span x-show="savingNotes">Saving...</span>
+                                    </button>
+                                    <button class="btn btn-sm" @click="editNotes = currentDoc?.notes || ''">Cancel</button>
+                                </div>
+                            </div>
+
                             <!-- Action items from this doc -->
                             <template x-if="currentDoc?.action_items?.length > 0">
                                 <div style="margin-bottom: 1rem;">
@@ -2752,6 +2767,10 @@ function lifeos() {
         editDocDate: '',
         editExpDate: '',
 
+        // Inline notes editor (document detail page)
+        editNotes: '',
+        savingNotes: false,
+
         // Staged re-analysis suggestion form
         suggestForm: {},
 
@@ -3649,6 +3668,7 @@ function lifeos() {
                 this.editTags = (res.data.tags || []).join(', ');
                 this.editDocDate = res.data.document_date || '';
                 this.editExpDate = res.data.expiration_date || '';
+                this.editNotes = res.data.notes || '';
                 this._loadSuggest(res.data);
             } catch {
                 this.navigate(this.prevView || 'documents');
@@ -3702,6 +3722,21 @@ function lifeos() {
                 this.toast('Document updated');
                 await this.viewDocument(this.currentDoc.id);
             } catch {}
+        },
+
+        async saveNotes() {
+            if (!this.currentDoc) return;
+            this.savingNotes = true;
+            try {
+                await this.api(`/api/documents/${this.currentDoc.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notes: this.editNotes }),
+                });
+                this.currentDoc.notes = this.editNotes;
+                this.toast('Notes saved');
+            } catch {}
+            this.savingNotes = false;
         },
 
         async reanalyze(id) {

@@ -109,6 +109,7 @@ def index_chunks(document_id: str, chunks: list[dict], domain: str = None) -> li
                 "char_start": chunk.get("char_start", 0),
                 "char_end": chunk.get("char_end", 0),
                 "domain": domain or "",
+                "kind": "content",
             },
         ))
 
@@ -135,6 +136,53 @@ def delete_document_vectors(document_id: str):
             must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
         ),
     )
+
+
+def reindex_notes(document_id: str, notes: str | None, domain: str = None):
+    """Re-embed a document's user notes in Qdrant.
+
+    Notes points are tagged kind="notes" and use negative chunk_index values
+    so they never collide with content chunks (which start at 0). Any prior
+    notes points for the document are removed first, so this is safe to call
+    on every notes edit — including clearing notes to empty.
+    """
+    settings = get_settings()
+    client = get_qdrant_client()
+
+    # Drop existing notes points for this document (leaves content chunks).
+    client.delete(
+        collection_name=settings.qdrant_collection,
+        points_selector=Filter(must=[
+            FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+            FieldCondition(key="kind", match=MatchValue(value="notes")),
+        ]),
+    )
+
+    if not notes or not notes.strip():
+        return
+
+    from processor import chunk_text
+    chunks = chunk_text(notes, settings.chunk_size, settings.chunk_overlap)
+    if not chunks:
+        return
+
+    embeddings = embed_texts([c["text"] for c in chunks])
+    points = [
+        PointStruct(
+            id=str(uuid.uuid4()),
+            vector=embedding,
+            payload={
+                "document_id": document_id,
+                "chunk_index": -1 - i,
+                "text": chunk["text"],
+                "kind": "notes",
+                "domain": domain or "",
+            },
+        )
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+    ]
+    client.upsert(collection_name=settings.qdrant_collection, points=points)
+    logger.info(f"Indexed {len(points)} notes chunk(s) for document {document_id}")
 
 
 # ── Semantic Search ──────────────────────────────────────────────────────
@@ -171,6 +219,7 @@ def semantic_search(
             "chunk_text": point.payload.get("text", ""),
             "chunk_index": point.payload.get("chunk_index", 0),
             "domain": point.payload.get("domain", ""),
+            "kind": point.payload.get("kind", "content"),
             "score": point.score,
         }
         for point in results.points
@@ -207,12 +256,18 @@ async def fulltext_search(
         rows = await conn.fetch(f"""
             SELECT d.id, d.title, d.domain,
                 ts_rank(
-                    to_tsvector('english', COALESCE(d.title, '') || ' ' || COALESCE(d.content_text, '')),
+                    to_tsvector('english',
+                        COALESCE(d.title, '') || ' ' ||
+                        COALESCE(d.content_text, '') || ' ' ||
+                        COALESCE(d.notes, '')),
                     plainto_tsquery('english', $1)
                 ) as rank
             FROM documents d
             WHERE {where}
-                AND to_tsvector('english', COALESCE(d.title, '') || ' ' || COALESCE(d.content_text, ''))
+                AND to_tsvector('english',
+                        COALESCE(d.title, '') || ' ' ||
+                        COALESCE(d.content_text, '') || ' ' ||
+                        COALESCE(d.notes, ''))
                     @@ plainto_tsquery('english', $1)
             ORDER BY rank DESC
             LIMIT ${param_idx}
