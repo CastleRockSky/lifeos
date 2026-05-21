@@ -18,15 +18,23 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+# Teach Pillow to decode HEIC/HEIF. Idempotent — processor.py also registers
+# it; doing so here too keeps thumbnails working regardless of import order.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:  # pragma: no cover - dependency always present in the image
+    logger.warning("pillow-heif not installed; HEIC/HEIF thumbnails unavailable")
+
 THUMB_WIDTH = 160
 THUMB_HEIGHT = 208
 THUMB_QUALITY = 80
 PDFTOPPM_TIMEOUT = 15  # seconds
 
-# Raster formats Pillow can open without extra plugins.
+# Raster formats Pillow can open (HEIC/HEIF via the pillow-heif opener above).
 IMAGE_MIME_TYPES = {
     "image/png", "image/jpeg", "image/tiff", "image/bmp",
-    "image/webp", "image/gif",
+    "image/webp", "image/gif", "image/heic", "image/heif",
 }
 
 

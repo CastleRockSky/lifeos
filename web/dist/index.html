@@ -2445,7 +2445,7 @@
                  @dragover.prevent="isDragover = true"
                  @dragleave="isDragover = false"
                  @drop.prevent="isDragover = false; handleDrop($event)">
-                <p>Drop a file here or click to browse</p>
+                <p>Drop a file here, click to browse, or paste an image (Ctrl/⌘+V)</p>
                 <div class="selected-file" x-show="uploadFile" x-text="uploadFile?.name"></div>
             </div>
             <input type="file" x-ref="fileInput" style="display:none"
@@ -2783,6 +2783,8 @@ function lifeos() {
             ]);
             // The initial view is the dashboard — keep the triage card live.
             this._attentionPoll = setInterval(() => this.loadAttention(), 10000);
+            // Paste an image (e.g. a screenshot) anywhere to jump straight to upload.
+            window.addEventListener('paste', (e) => this.handlePaste(e));
         },
 
         navigate(v) {
@@ -3835,6 +3837,38 @@ function lifeos() {
         // ── Upload ──────────────────────────────────────
         handleDrop(e) {
             this.uploadFile = e.dataTransfer.files[0];
+        },
+
+        // Map an image MIME type to a sensible file extension.
+        _extFromMime(mime) {
+            return ({
+                'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+                'image/gif': 'gif', 'image/bmp': 'bmp', 'image/tiff': 'tiff',
+                'image/heic': 'heic', 'image/heif': 'heif',
+            })[mime] || 'png';
+        },
+
+        // Paste an image from the clipboard (screenshot, copied photo) straight
+        // into the upload flow. Text pastes carry no image item, so typing into
+        // form fields is unaffected.
+        handlePaste(e) {
+            const items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    const blob = item.getAsFile();
+                    if (!blob) continue;
+                    e.preventDefault();
+                    // Clipboard images arrive unnamed ("image.png"); give them a
+                    // timestamped name so the auto-derived title is meaningful.
+                    const ts = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+                    const name = `pasted-${ts}.${this._extFromMime(blob.type)}`;
+                    this.uploadFile = new File([blob], name, { type: blob.type });
+                    this.showUpload = true;
+                    this.toast('Image pasted — review and upload');
+                    return;
+                }
+            }
         },
 
         async doUpload() {

@@ -17,6 +17,7 @@ pdfplumber==0.11.4
 pytesseract==0.3.13
 ocrmypdf==16.7.0
 Pillow>=10.3.0,<11.0.0
+pillow-heif>=0.16.0,<1.0  # HEIC/HEIF decoding (iPhone camera default); libheif bundled in wheel
 python-magic==0.4.27
 chardet==5.2.0
 

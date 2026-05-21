@@ -19,6 +19,16 @@ import chardet
 logger = logging.getLogger(__name__)
 
 
+# ── HEIC/HEIF support ────────────────────────────────────────────────────
+# Registering the opener teaches Pillow to decode HEIC/HEIF for the whole
+# process — this covers OCR here, thumbnails, and the multi-image merge path.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:  # pragma: no cover - dependency always present in the image
+    logger.warning("pillow-heif not installed; HEIC/HEIF files will not be processed")
+
+
 # ── OCR Preprocessing ────────────────────────────────────────────────────
 
 def _safe_remove(path: str):
@@ -190,6 +200,10 @@ def extract_text_from_image(file_path: str) -> str:
 
     try:
         img = _auto_orient_image(file_path)
+        # Normalise palette (GIF) and alpha (WEBP/PNG) modes before OCR —
+        # Tesseract works most reliably on RGB/grayscale.
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
         text = pytesseract.image_to_string(img, timeout=60)
         return text.strip()
     except Exception as e:
@@ -274,8 +288,14 @@ def extract_text_with_metadata(file_path: str, mime_type: str = None) -> dict:
                 _safe_remove(sidecar)
 
     # Images
-    image_mimes = {"image/png", "image/jpeg", "image/tiff", "image/bmp"}
-    image_exts = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp"}
+    image_mimes = {
+        "image/png", "image/jpeg", "image/tiff", "image/bmp",
+        "image/heic", "image/heif", "image/webp", "image/gif",
+    }
+    image_exts = {
+        ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp",
+        ".heic", ".heif", ".webp", ".gif",
+    }
     if resolved_mime in image_mimes or ext in image_exts:
         text = extract_text_from_image(file_path)
         return {
@@ -303,6 +323,10 @@ MIME_EXTRACTORS = {
     'image/jpeg': extract_text_from_image,
     'image/tiff': extract_text_from_image,
     'image/bmp': extract_text_from_image,
+    'image/heic': extract_text_from_image,
+    'image/heif': extract_text_from_image,
+    'image/webp': extract_text_from_image,
+    'image/gif': extract_text_from_image,
     'text/plain': extract_text_from_text,
     'text/csv': extract_text_from_text,
     'text/html': extract_text_from_text,
@@ -317,6 +341,10 @@ EXT_EXTRACTORS = {
     '.tiff': extract_text_from_image,
     '.tif': extract_text_from_image,
     '.bmp': extract_text_from_image,
+    '.heic': extract_text_from_image,
+    '.heif': extract_text_from_image,
+    '.webp': extract_text_from_image,
+    '.gif': extract_text_from_image,
     '.txt': extract_text_from_text,
     '.csv': extract_text_from_text,
     '.log': extract_text_from_text,
