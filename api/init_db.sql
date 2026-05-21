@@ -47,6 +47,7 @@ CREATE TABLE documents (
     expiration_date DATE,                   -- expiration date if applicable
     ai_analyzed_at TIMESTAMPTZ,
     ai_prompt_version INTEGER DEFAULT 1,
+    ai_suggestion JSONB,                    -- staged re-analysis metadata awaiting review (NULL when none)
     tags TEXT[] DEFAULT '{}',
     uploaded_by VARCHAR(100),
     email_message_id UUID,                  -- FK added below (forward declaration)

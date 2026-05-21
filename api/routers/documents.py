@@ -7,6 +7,7 @@ import os
 import uuid
 import logging
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException, Request
@@ -415,6 +416,7 @@ async def get_document(document_id: str):
             "file_size_bytes": row["file_size_bytes"],
             "file_path": row["file_path"],
             "original_filename": row["original_filename"],
+            "source": row["source"],
             "content_text": row["content_text"],
             "text_length": row["text_length"],
             "ocr_applied": row["ocr_applied"],
@@ -426,6 +428,7 @@ async def get_document(document_id: str):
             "ai_action_items": row["ai_action_items"],
             "ai_status": row["ai_status"],
             "ai_confidence": row["ai_confidence"],
+            "ai_suggestion": row["ai_suggestion"],
             "review_status": row["review_status"],
             "document_date": row["document_date"].isoformat() if row["document_date"] else None,
             "expiration_date": row["expiration_date"].isoformat() if row["expiration_date"] else None,
@@ -535,6 +538,17 @@ async def update_document(document_id: str, body: DocumentUpdate, request: Reque
     if body.review_status and body.review_status not in ("none", "needs_review", "reviewed"):
         raise HTTPException(400, f"Invalid review_status: {body.review_status}")
 
+    def _parse_date(value: str | None, label: str):
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            raise HTTPException(400, f"Invalid {label}: {value} (expected YYYY-MM-DD)")
+
+    doc_date = _parse_date(body.document_date, "document_date")
+    exp_date = _parse_date(body.expiration_date, "expiration_date")
+
     async with pool.acquire() as conn:
         existing = await conn.fetchrow(
             "SELECT id FROM documents WHERE id = $1 AND deleted_at IS NULL", did
@@ -550,9 +564,15 @@ async def update_document(document_id: str, body: DocumentUpdate, request: Reque
                 category = COALESCE($4, category),
                 subject_id = COALESCE($5, subject_id),
                 tags = COALESCE($6, tags),
-                review_status = COALESCE($7, review_status)
+                review_status = COALESCE($7, review_status),
+                document_date = COALESCE($8, document_date),
+                expiration_date = COALESCE($9, expiration_date),
+                ai_summary = COALESCE($10, ai_summary),
+                ai_suggestion = CASE WHEN $11 THEN NULL ELSE ai_suggestion END
             WHERE id = $1
-        """, did, body.title, body.domain, body.category, sid, body.tags, body.review_status)
+        """, did, body.title, body.domain, body.category, sid, body.tags,
+             body.review_status, doc_date, exp_date, body.summary,
+             bool(body.clear_suggestion))
 
     await audit_log("update", get_user_email(request), "documents", document_id)
     return {"data": {"id": document_id, "updated": True}}
@@ -616,6 +636,7 @@ async def reanalyze_document(document_id: str, request: Request):
 
     asyncio.create_task(run_ai_analysis(
         document_id, existing["domain"], existing["category"],
+        stage_metadata=True,
     ))
 
     return {"data": {"id": document_id, "ai_status": "analyzing"}}

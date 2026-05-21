@@ -71,8 +71,20 @@ async def _resolve_subject(pool, subject_hint: str | None, domain: str | None):
 
 # ── Background AI Analysis ──────────────────────────────────────────────
 
-async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None):
-    """Background task: run AI analysis on a document and update DB."""
+async def run_ai_analysis(
+    doc_id: str,
+    domain: str = None,
+    category: str = None,
+    stage_metadata: bool = False,
+):
+    """Background task: run AI analysis on a document and update DB.
+
+    When stage_metadata is True (re-analysis of an existing document), the AI's
+    proposed metadata — title, domain, category, dates, summary, tags — is NOT
+    applied directly. It is stored in documents.ai_suggestion for the user to
+    review and save in the UI. Extracted action items, structured records and
+    metrics still apply automatically either way.
+    """
     pool = get_pool()
     try:
         async with pool.acquire() as conn:
@@ -171,41 +183,78 @@ async def run_ai_analysis(doc_id: str, domain: str = None, category: str = None)
                 apply_title = result.title
 
         async with pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE documents SET
-                    title = COALESCE($15, title),
-                    ai_summary = $2,
-                    ai_extracted_data = $3,
-                    ai_action_items = $4,
-                    ai_status = 'complete',
-                    ai_confidence = $5,
-                    review_status = $6,
-                    document_date = $7,
-                    expiration_date = $8,
-                    ai_analyzed_at = $9,
-                    ai_prompt_version = $10,
-                    domain = COALESCE($11, domain),
-                    category = COALESCE($12, category),
-                    tags = CASE WHEN array_length(tags, 1) IS NULL THEN $13 ELSE tags || $13 END,
-                    subject_id = COALESCE($14, subject_id)
-                WHERE id = $1
-            """,
-                uuid.UUID(doc_id),
-                result.summary,
-                result.extracted_data,
-                result.action_items_raw,
-                result.confidence,
-                review,
-                doc_date,
-                exp_date,
-                datetime.now(timezone.utc),
-                result.prompt_version,
-                apply_domain,
-                apply_category,
-                result.tags or [],
-                resolved_subject_id,
-                apply_title,
-            )
+            if stage_metadata:
+                # Re-analysis: stage the proposed metadata for review instead of
+                # applying it. Extracted data, action items, records and metrics
+                # below still apply normally.
+                suggestion = {
+                    "title": result.title,
+                    "summary": result.summary,
+                    "domain": result.domain,
+                    "category": result.category,
+                    "document_date": result.document_date,
+                    "expiration_date": result.expiration_date,
+                    "tags": result.tags or [],
+                    "confidence": result.confidence,
+                    "analyzed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                await conn.execute("""
+                    UPDATE documents SET
+                        ai_extracted_data = $2,
+                        ai_action_items = $3,
+                        ai_status = 'complete',
+                        ai_confidence = $4,
+                        ai_analyzed_at = $5,
+                        ai_prompt_version = $6,
+                        subject_id = COALESCE($7, subject_id),
+                        ai_suggestion = $8
+                    WHERE id = $1
+                """,
+                    uuid.UUID(doc_id),
+                    result.extracted_data,
+                    result.action_items_raw,
+                    result.confidence,
+                    datetime.now(timezone.utc),
+                    result.prompt_version,
+                    resolved_subject_id,
+                    suggestion,
+                )
+            else:
+                await conn.execute("""
+                    UPDATE documents SET
+                        title = COALESCE($15, title),
+                        ai_summary = $2,
+                        ai_extracted_data = $3,
+                        ai_action_items = $4,
+                        ai_status = 'complete',
+                        ai_confidence = $5,
+                        review_status = $6,
+                        document_date = $7,
+                        expiration_date = $8,
+                        ai_analyzed_at = $9,
+                        ai_prompt_version = $10,
+                        domain = COALESCE($11, domain),
+                        category = COALESCE($12, category),
+                        tags = CASE WHEN array_length(tags, 1) IS NULL THEN $13 ELSE tags || $13 END,
+                        subject_id = COALESCE($14, subject_id)
+                    WHERE id = $1
+                """,
+                    uuid.UUID(doc_id),
+                    result.summary,
+                    result.extracted_data,
+                    result.action_items_raw,
+                    result.confidence,
+                    review,
+                    doc_date,
+                    exp_date,
+                    datetime.now(timezone.utc),
+                    result.prompt_version,
+                    apply_domain,
+                    apply_category,
+                    result.tags or [],
+                    resolved_subject_id,
+                    apply_title,
+                )
 
             # Create action items in the action_items table
             if result.action_items:

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LifeOS</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234db8a4'/><text x='50' y='68' font-size='44' font-weight='700' fill='%23ffffff' text-anchor='middle' font-family='Segoe UI,Helvetica,Arial,sans-serif'>LO</text></svg>">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         :root {
@@ -841,6 +842,79 @@
                         </div>
                     </template>
 
+                    <!-- Suggested Updates (staged from re-analyze) -->
+                    <template x-if="currentDoc?.ai_suggestion">
+                        <div class="ai-summary-box" style="background:var(--primary-muted); border-color:rgba(77,184,164,0.4); margin-bottom:1.25rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div class="label" style="color:var(--primary);">Suggested Updates</div>
+                                <button class="btn btn-xs" @click="dismissSuggestion()">Dismiss</button>
+                            </div>
+                            <div style="color:var(--text-muted); font-size:0.8rem; margin:0.25rem 0 0.75rem;">
+                                Re-analysis proposed these changes. Edit anything, then save — nothing is applied until you do.
+                                <span x-show="currentDoc?.ai_suggestion?.confidence"
+                                      x-text="'(confidence ' + (currentDoc.ai_suggestion.confidence * 100).toFixed(0) + '%)'"></span>
+                            </div>
+                            <div class="form-group">
+                                <label>Title</label>
+                                <input type="text" x-model="suggestForm.title">
+                                <div style="font-size:0.75rem; color:var(--text-faint); margin-top:0.2rem;"
+                                     x-show="(currentDoc?.title || '') !== (suggestForm.title || '')"
+                                     x-text="'was: ' + (currentDoc?.title || '—')"></div>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                                <div class="form-group">
+                                    <label>Domain</label>
+                                    <select x-model="suggestForm.domain">
+                                        <option value="">None</option>
+                                        <template x-for="d in domains" :key="d">
+                                            <option :value="d" x-text="d.charAt(0).toUpperCase() + d.slice(1)"></option>
+                                        </template>
+                                    </select>
+                                    <div style="font-size:0.75rem; color:var(--text-faint); margin-top:0.2rem;"
+                                         x-show="(currentDoc?.domain || '') !== (suggestForm.domain || '')"
+                                         x-text="'was: ' + (currentDoc?.domain || '—')"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Category</label>
+                                    <select x-model="suggestForm.category">
+                                        <option value="">None</option>
+                                        <template x-for="c in (categories[suggestForm.domain] || [])" :key="c">
+                                            <option :value="c" x-text="c.replace(/_/g, ' ')"></option>
+                                        </template>
+                                    </select>
+                                    <div style="font-size:0.75rem; color:var(--text-faint); margin-top:0.2rem;"
+                                         x-show="(currentDoc?.category || '') !== (suggestForm.category || '')"
+                                         x-text="'was: ' + (currentDoc?.category?.replace(/_/g, ' ') || '—')"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Document Date</label>
+                                    <input type="date" x-model="suggestForm.document_date">
+                                    <div style="font-size:0.75rem; color:var(--text-faint); margin-top:0.2rem;"
+                                         x-show="(currentDoc?.document_date || '') !== (suggestForm.document_date || '')"
+                                         x-text="'was: ' + (currentDoc?.document_date || '—')"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Expiration Date</label>
+                                    <input type="date" x-model="suggestForm.expiration_date">
+                                    <div style="font-size:0.75rem; color:var(--text-faint); margin-top:0.2rem;"
+                                         x-show="(currentDoc?.expiration_date || '') !== (suggestForm.expiration_date || '')"
+                                         x-text="'was: ' + (currentDoc?.expiration_date || '—')"></div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Summary</label>
+                                <textarea x-model="suggestForm.summary" rows="2"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Tags (comma-separated)</label>
+                                <input type="text" x-model="suggestForm.tags">
+                            </div>
+                            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                                <button class="btn btn-primary btn-sm" @click="saveSuggestion()">Save updates</button>
+                            </div>
+                        </div>
+                    </template>
+
                     <div class="detail-grid">
                         <div>
                             <!-- File preview -->
@@ -956,13 +1030,22 @@
                                     <span class="label">Ingested</span>
                                     <span x-text="formatDate(currentDoc?.ingested_at)"></span>
                                 </div>
-                                <div class="detail-meta-row" x-show="currentDoc?.document_date">
+                                <div class="detail-meta-row">
                                     <span class="label">Doc Date</span>
-                                    <span x-text="formatDate(currentDoc?.document_date)"></span>
+                                    <span x-text="currentDoc?.document_date ? formatDate(currentDoc?.document_date) : '--'"></span>
                                 </div>
-                                <div class="detail-meta-row" x-show="currentDoc?.expiration_date">
+                                <div class="detail-meta-row">
                                     <span class="label">Expires</span>
-                                    <span style="color:var(--danger);" x-text="formatDate(currentDoc?.expiration_date)"></span>
+                                    <span :style="currentDoc?.expiration_date ? 'color:var(--danger);' : 'color:var(--text-faint);'"
+                                          x-text="currentDoc?.expiration_date ? formatDate(currentDoc?.expiration_date) : '--'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Analyzed</span>
+                                    <span x-text="currentDoc?.ai_analyzed_at ? formatDate(currentDoc?.ai_analyzed_at) : '--'"></span>
+                                </div>
+                                <div class="detail-meta-row">
+                                    <span class="label">Source</span>
+                                    <span x-text="(currentDoc?.source || '--').replace(/_/g, ' ')"></span>
                                 </div>
                                 <div class="detail-meta-row" x-show="currentDoc?.tags?.length">
                                     <span class="label">Tags</span>
@@ -2454,6 +2537,16 @@
                     </template>
                 </select>
             </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                <div class="form-group">
+                    <label>Document Date</label>
+                    <input type="date" x-model="editDocDate">
+                </div>
+                <div class="form-group">
+                    <label>Expiration Date</label>
+                    <input type="date" x-model="editExpDate">
+                </div>
+            </div>
             <div class="form-group">
                 <label>Tags (comma-separated)</label>
                 <input type="text" x-model="editTags">
@@ -2653,6 +2746,11 @@ function lifeos() {
         editCategory: '',
         editSubject: '',
         editTags: '',
+        editDocDate: '',
+        editExpDate: '',
+
+        // Staged re-analysis suggestion form
+        suggestForm: {},
 
         // New subject
         newSubjectName: '',
@@ -3536,6 +3634,9 @@ function lifeos() {
                 this.editCategory = res.data.category || '';
                 this.editSubject = res.data.subject_id || '';
                 this.editTags = (res.data.tags || []).join(', ');
+                this.editDocDate = res.data.document_date || '';
+                this.editExpDate = res.data.expiration_date || '';
+                this._loadSuggest(res.data);
             } catch {
                 this.navigate(this.prevView || 'documents');
             }
@@ -3574,6 +3675,8 @@ function lifeos() {
             if (this.editDomain) body.domain = this.editDomain;
             if (this.editCategory) body.category = this.editCategory;
             if (this.editSubject) body.subject_id = this.editSubject;
+            if (this.editDocDate) body.document_date = this.editDocDate;
+            if (this.editExpDate) body.expiration_date = this.editExpDate;
             body.tags = this.editTags.split(',').map(t => t.trim()).filter(Boolean);
 
             try {
@@ -3592,7 +3695,10 @@ function lifeos() {
             try {
                 await this.api(`/api/documents/${id}/reanalyze`, { method: 'POST' });
                 this.toast('Re-analysis started');
-                if (this.currentDoc) this.currentDoc.ai_status = 'analyzing';
+                if (this.currentDoc) {
+                    this.currentDoc.ai_status = 'analyzing';
+                    this.currentDoc.ai_suggestion = null;
+                }
             } catch {}
         },
 
@@ -3602,8 +3708,61 @@ function lifeos() {
                 if (res.data.ai_status !== 'analyzing') {
                     clearInterval(this._aiPoll);
                     this.currentDoc = res.data;
-                    this.toast('AI analysis complete');
+                    this._loadSuggest(res.data);
+                    this.toast(res.data.ai_suggestion
+                        ? 'Re-analysis ready — review the suggested updates'
+                        : 'AI analysis complete');
                 }
+            } catch {}
+        },
+
+        // Populate the editable suggestion form from a document's staged
+        // re-analysis result. Falls back to the document's current values.
+        _loadSuggest(doc) {
+            const s = doc && doc.ai_suggestion;
+            this.suggestForm = s ? {
+                title: s.title || doc.title || '',
+                domain: s.domain || doc.domain || '',
+                category: s.category || doc.category || '',
+                document_date: s.document_date || '',
+                expiration_date: s.expiration_date || '',
+                summary: s.summary || '',
+                tags: (s.tags || []).join(', '),
+            } : {};
+        },
+
+        async saveSuggestion() {
+            if (!this.currentDoc) return;
+            const f = this.suggestForm;
+            const body = { clear_suggestion: true };
+            if (f.title) body.title = f.title;
+            if (f.domain) body.domain = f.domain;
+            if (f.category) body.category = f.category;
+            if (f.document_date) body.document_date = f.document_date;
+            if (f.expiration_date) body.expiration_date = f.expiration_date;
+            if (f.summary) body.summary = f.summary;
+            body.tags = (f.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+            try {
+                await this.api(`/api/documents/${this.currentDoc.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                this.toast('Suggested updates saved');
+                await this.viewDocument(this.currentDoc.id);
+            } catch {}
+        },
+
+        async dismissSuggestion() {
+            if (!this.currentDoc) return;
+            try {
+                await this.api(`/api/documents/${this.currentDoc.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clear_suggestion: true }),
+                });
+                this.toast('Suggestion dismissed');
+                await this.viewDocument(this.currentDoc.id);
             } catch {}
         },
 

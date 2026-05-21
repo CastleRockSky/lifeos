@@ -26,6 +26,10 @@ class DocumentUpdate(BaseModel):
     subject_id: Optional[str] = None
     tags: Optional[list[str]] = None
     review_status: Optional[str] = None
+    document_date: Optional[str] = None
+    expiration_date: Optional[str] = None
+    summary: Optional[str] = None
+    clear_suggestion: Optional[bool] = None
 
 
 class ActionItemCreate(BaseModel):
