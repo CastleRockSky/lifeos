@@ -185,6 +185,7 @@ async def list_expirations(
     conditions = [
         "d.deleted_at IS NULL",
         "d.expiration_date IS NOT NULL",
+        "d.expiration_acknowledged_at IS NULL",
         "d.expiration_date <= $1",
     ]
     params = [cutoff]
@@ -222,3 +223,40 @@ async def list_expirations(
             for r in rows
         ],
     }
+
+
+@router.post("/expirations/{document_id}/acknowledge")
+async def acknowledge_expiration(document_id: str, request: Request):
+    """Clear a document's expiration alert from the dashboard.
+
+    Leaves expiration_date intact — only suppresses the alert. If the
+    document is later given a new expiration_date, re-run acknowledgement
+    is not needed; clearing the column again would re-surface it.
+    """
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid document ID")
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        updated = await conn.fetchval(
+            """UPDATE documents
+                  SET expiration_acknowledged_at = NOW()
+                WHERE id = $1
+                  AND deleted_at IS NULL
+                  AND expiration_date IS NOT NULL
+            RETURNING id""",
+            doc_uuid,
+        )
+
+    if not updated:
+        raise HTTPException(404, "Document with an expiration date not found")
+
+    await audit_log(
+        "expiration_acknowledge",
+        user_email=get_user_email(request) or "local",
+        table_name="documents",
+        record_id=document_id,
+    )
+    return {"data": {"id": document_id, "acknowledged": True}}

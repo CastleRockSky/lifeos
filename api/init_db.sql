@@ -45,6 +45,7 @@ CREATE TABLE documents (
     review_status TEXT DEFAULT 'none',      -- none, needs_review, reviewed
     document_date DATE,                     -- date extracted from document content
     expiration_date DATE,                   -- expiration date if applicable
+    expiration_acknowledged_at TIMESTAMPTZ, -- set when the expiration alert is cleared on the dashboard
     ai_analyzed_at TIMESTAMPTZ,
     ai_prompt_version INTEGER DEFAULT 1,
     ai_suggestion JSONB,                    -- staged re-analysis metadata awaiting review (NULL when none)

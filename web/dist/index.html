@@ -619,6 +619,9 @@
                                         <span x-text="formatDate(exp.expiration_date)"></span>
                                     </div>
                                 </div>
+                                <div class="action-item-actions">
+                                    <button class="btn btn-xs" @click.stop="acknowledgeExpiration(exp.id)">Clear</button>
+                                </div>
                             </div>
                         </template>
                     </div>
@@ -2970,6 +2973,14 @@ function lifeos() {
             try {
                 const res = await this.api('/api/expirations?days=60');
                 this.expirations = res.data;
+            } catch {}
+        },
+
+        async acknowledgeExpiration(id) {
+            try {
+                await this.api(`/api/expirations/${id}/acknowledge`, { method: 'POST' });
+                this.expirations = this.expirations.filter(e => e.id !== id);
+                this.toast('Expiration cleared');
             } catch {}
         },
 
