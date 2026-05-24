@@ -558,6 +558,54 @@ async def apply_template(vehicle_id: str, body: ApplyTemplate, request: Request)
     return {"data": {"created": created, "skipped": skipped, "template_key": body.template_key}}
 
 
+# ── Cost summary (Auto-redesign Phase 4) ────────────────────────────────
+
+@router.get("/{vehicle_id}/cost-summary")
+async def cost_summary(vehicle_id: str):
+    """Per-vehicle service spend rollups: lifetime, $/mile, YTD, by category,
+    by year. The math lives in _compute_cost_summary so it's unit-testable;
+    this endpoint just gathers inputs from the DB."""
+    try:
+        vid = uuid.UUID(vehicle_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid vehicle id")
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        vehicle = await _fetch_vehicle(conn, vid)
+        vdata = _data(vehicle)
+        current_mileage = vdata.get("current_mileage")
+
+        svc_rows = await conn.fetch(
+            """SELECT data FROM structured_records
+               WHERE record_type = 'service_record'
+                 AND deleted_at IS NULL
+                 AND data->>'vehicle_record_id' = $1""",
+            str(vid),
+        )
+        services = [
+            r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])
+            for r in svc_rows
+        ]
+
+        # Mileage observations from the time-series table — only for this
+        # vehicle's subject. Combined with each service's mileage to find
+        # the earliest known reading.
+        mileage_history: list[int] = []
+        if vehicle["subject_id"]:
+            rows = await conn.fetch(
+                """SELECT value_numeric FROM time_series_metrics
+                   WHERE subject_id = $1 AND metric_type = 'mileage'""",
+                vehicle["subject_id"],
+            )
+            mileage_history = [int(r["value_numeric"]) for r in rows
+                               if r["value_numeric"] is not None]
+
+    return {"data": _compute_cost_summary(
+        services, current_mileage, mileage_history, date.today(),
+    )}
+
+
 # ── Maintenance schedule CRUD (Auto-redesign Phase 3) ───────────────────
 
 class ScheduleCreate(BaseModel):
@@ -642,6 +690,85 @@ def _add_months(d: date, months: int) -> date:
     else:
         last = 31
     return date(year, month, min(d.day, last))
+
+
+# Below this many miles of history, $/mile is too noisy to be useful — spec
+# guardrail to keep absurd numbers off the page when a vehicle is brand new
+# or has just one service log.
+_MIN_HISTORY_MILES_FOR_PER_MILE = 1000
+
+
+def _compute_cost_summary(
+    services: list[dict],
+    current_mileage: Optional[int],
+    mileage_history: list[int],
+    today: date,
+) -> dict:
+    """Pure aggregation over a list of service-record data blobs.
+
+    services: list of dicts with optional ``cost`` (number), ``category`` (str),
+              and ``date`` (iso str or date) keys.
+    current_mileage: latest known odometer for the vehicle, or None.
+    mileage_history: additional mileage observations from time_series_metrics;
+                     combined with each service's mileage to find the earliest
+                     known reading.
+    today: anchor for YTD ("current year" relative to this date).
+    """
+    lifetime_total = 0.0
+    ytd_total = 0.0
+    by_category: dict[str, float] = {}
+    by_year: dict[str, float] = {}
+
+    mileage_observations: list[int] = list(mileage_history)
+    if isinstance(current_mileage, int):
+        mileage_observations.append(current_mileage)
+
+    for svc in services:
+        cost = svc.get("cost")
+        if not isinstance(cost, (int, float)):
+            continue
+        amount = float(cost)
+        lifetime_total += amount
+
+        # Date parsing — service.date may be a date object or iso string.
+        raw_date = svc.get("date")
+        d: Optional[date]
+        if isinstance(raw_date, date):
+            d = raw_date
+        elif isinstance(raw_date, str):
+            try:
+                d = date.fromisoformat(raw_date)
+            except ValueError:
+                d = None
+        else:
+            d = None
+        if d is not None:
+            if d.year == today.year:
+                ytd_total += amount
+            year_key = str(d.year)
+            by_year[year_key] = by_year.get(year_key, 0.0) + amount
+
+        cat = svc.get("category") or "other"
+        by_category[cat] = by_category.get(cat, 0.0) + amount
+
+        m = svc.get("mileage")
+        if isinstance(m, int):
+            mileage_observations.append(m)
+
+    per_mile: Optional[float] = None
+    if isinstance(current_mileage, int) and mileage_observations:
+        earliest = min(mileage_observations)
+        span = current_mileage - earliest
+        if span >= _MIN_HISTORY_MILES_FOR_PER_MILE and lifetime_total > 0:
+            per_mile = lifetime_total / span
+
+    return {
+        "lifetime_total": round(lifetime_total, 2),
+        "lifetime_per_mile": round(per_mile, 4) if per_mile is not None else None,
+        "ytd_total": round(ytd_total, 2),
+        "by_category": {k: round(v, 2) for k, v in by_category.items()},
+        "by_year": {k: round(v, 2) for k, v in by_year.items()},
+    }
 
 
 async def _recompute_schedules(conn, vehicle_id: uuid.UUID, current_mileage: int, update_date: date):

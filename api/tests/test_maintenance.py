@@ -283,8 +283,9 @@ class TestMaintenanceAPI:
 
     @pytest.fixture
     def vehicle_id(self):
-        """Provision a clean test vehicle; archive it after the test so it
-        doesn't pollute the fleet list."""
+        """Provision a clean test vehicle; clean up schedules + archive it
+        afterward so leftovers don't bleed into the next test run or skew
+        fleet/cost rollups."""
         status, body = _request("POST", "/api/vehicles", {
             "year": 2099, "make": "TestMake", "model": "TestModel",
             "current_mileage": 50000,
@@ -294,6 +295,11 @@ class TestMaintenanceAPI:
         try:
             yield vid
         finally:
+            _, scheds = _request("GET",
+                "/api/records?record_type=maintenance_schedule&per_page=200")
+            for s in scheds.get("data", []):
+                if s["data"].get("vehicle_record_id") == vid:
+                    _request("DELETE", f"/api/maintenance-schedules/{s['id']}")
             _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
 
     # — Templates —

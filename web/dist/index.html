@@ -1946,9 +1946,111 @@
                             </template>
                         </div>
 
+                        <!-- Costs panel (Phase 4) -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header"><h2>Costs</h2></div>
+                            <template x-if="currentVehicle._costs">
+                                <div class="action-item" style="display:block; padding:1rem 1.25rem;">
+                                    <div style="display:flex; flex-wrap:wrap; gap:1.5rem; align-items:flex-end;">
+                                        <div>
+                                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">Lifetime</div>
+                                            <div style="font-size:1.5rem; font-weight:600;"
+                                                 x-text="'$' + currentVehicle._costs.lifetime_total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">YTD</div>
+                                            <div style="font-size:1.2rem; font-weight:600;"
+                                                 x-text="'$' + currentVehicle._costs.ytd_total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">$/mile</div>
+                                            <div style="font-size:1.2rem; font-weight:600;"
+                                                 :style="currentVehicle._costs.lifetime_per_mile == null ? 'color:var(--text-faint);' : ''"
+                                                 x-text="currentVehicle._costs.lifetime_per_mile != null
+                                                    ? '$' + currentVehicle._costs.lifetime_per_mile.toFixed(3)
+                                                    : 'Not enough data'"></div>
+                                        </div>
+                                    </div>
+                                    <!-- By-category bars -->
+                                    <div style="margin-top:1rem;" x-show="Object.keys(currentVehicle._costs.by_category || {}).length">
+                                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; margin-bottom:0.4rem;">By category</div>
+                                        <template x-for="[cat, amt] in Object.entries(currentVehicle._costs.by_category).sort((a,b) => b[1]-a[1])" :key="cat">
+                                            <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.8rem; margin-bottom:0.2rem;">
+                                                <div style="width:7rem; text-transform:capitalize;" x-text="cat"></div>
+                                                <div style="flex:1; background:var(--surface-hover); border-radius:var(--radius); height:0.65rem; overflow:hidden;">
+                                                    <div style="background:var(--primary); height:100%;"
+                                                         :style="'width:' + Math.max(2, (amt / currentVehicle._costs.lifetime_total) * 100) + '%;'"></div>
+                                                </div>
+                                                <div style="width:5rem; text-align:right; font-variant-numeric:tabular-nums;"
+                                                     x-text="'$' + amt.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <!-- By-year line (last 5) -->
+                                    <div style="margin-top:1rem;" x-show="Object.keys(currentVehicle._costs.by_year || {}).length">
+                                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; margin-bottom:0.4rem;">By year</div>
+                                        <div x-html="renderCostByYear(currentVehicle._costs.by_year)"></div>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="!currentVehicle._costs || currentVehicle._costs.lifetime_total === 0">
+                                <div class="action-item" style="display:block; padding:1rem 1.25rem; color:var(--text-muted);">
+                                    No services logged yet — rollups appear after the first cost is recorded.
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Service history (Phase 4) -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                                <h2>Service history</h2>
+                                <button class="btn btn-sm btn-primary" @click="openServiceForm()">+ Log a service</button>
+                            </div>
+                            <template x-if="(currentVehicle._services || []).length === 0">
+                                <div class="action-item" style="display:block; padding:1.25rem;">
+                                    <div style="font-size:0.9rem; margin-bottom:0.5rem;">No service history yet for this vehicle.</div>
+                                    <div style="font-size:0.8rem; color:var(--text-muted);">
+                                        Use "Log a service" to record an oil change you did at home, a paid receipt, anything.
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-for="s in (currentVehicle._services || [])" :key="s.id">
+                                <div class="action-item" style="display:block;">
+                                    <div style="display:flex; align-items:start; gap:0.75rem;">
+                                        <div style="flex:1;">
+                                            <div class="action-item-title">
+                                                <span x-text="s.data?.service_type || 'Service'"></span>
+                                                <span class="badge" style="margin-left:0.4rem; text-transform:capitalize;"
+                                                      x-text="s.data?.category || 'preventive'"></span>
+                                            </div>
+                                            <div class="action-item-meta">
+                                                <span x-show="s.data?.date" x-text="s.data.date"></span>
+                                                <span x-show="s.data?.mileage != null" x-text="' · ' + s.data.mileage.toLocaleString() + ' mi'"></span>
+                                                <span x-show="s.data?.provider" x-text="' · ' + s.data.provider"></span>
+                                                <span x-show="s.data?.cost != null"
+                                                      x-text="' · $' + Number(s.data.cost).toFixed(2)"></span>
+                                            </div>
+                                            <div x-show="(s.data?.parts || []).length || s.data?.notes"
+                                                 style="font-size:0.8rem; color:var(--text-muted); margin-top:0.35rem;">
+                                                <div x-show="(s.data?.parts || []).length"
+                                                     x-text="'Parts: ' + (s.data.parts || []).join(', ')"></div>
+                                                <div x-show="s.data?.notes" style="white-space:pre-wrap;"
+                                                     x-text="s.data.notes"></div>
+                                            </div>
+                                        </div>
+                                        <div class="action-item-actions">
+                                            <a class="btn btn-xs" x-show="s.source_document_id"
+                                               :href="'/api/documents/' + s.source_document_id + '/file'" target="_blank">Doc</a>
+                                            <button class="btn btn-xs" @click="openServiceForm(s)">Edit</button>
+                                            <button class="btn btn-xs btn-danger" @click="deleteService(s.id)">Delete</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- Skeleton sections (remaining phases) -->
                         <template x-for="section in [
-                            { title: 'Service history',       phase: 'Phase 4', blurb: 'Per-vehicle history, manual logging, cost rollups, $/mile.' },
                             { title: 'Documents',             phase: 'Phase 6', blurb: 'Registration, title, insurance card, recall notices, service receipts.' },
                             { title: 'Recalls',               phase: 'Phase 7', blurb: 'Background NHTSA lookup by VIN; acknowledge / resolve flow.' },
                             { title: 'Mileage trends',        phase: 'Phase 8', blurb: 'Chart over time, miles-per-month, predictive ETAs.' },
@@ -3271,6 +3373,77 @@
         </div>
     </div>
 
+    <!-- Log a Service Form (Auto Phase 4) -->
+    <div class="modal-overlay" x-show="showServiceForm" @click.self="showServiceForm = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:560px;">
+            <h3 x-text="serviceFormMode === 'edit' ? 'Edit service' : 'Log a service'"></h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                <div class="form-group">
+                    <label>Date *</label>
+                    <input type="date" x-model="serviceForm.date">
+                </div>
+                <div class="form-group">
+                    <label>Mileage</label>
+                    <input type="number" x-model.number="serviceForm.mileage">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>Service type *</label>
+                    <input type="text" x-model="serviceForm.service_type" placeholder="e.g. Oil change">
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select x-model="serviceForm.category">
+                        <option value="preventive">Preventive</option>
+                        <option value="repair">Repair</option>
+                        <option value="tires">Tires</option>
+                        <option value="bodywork">Bodywork</option>
+                        <option value="registration">Registration</option>
+                        <option value="inspection">Inspection</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Provider</label>
+                    <input type="text" x-model="serviceForm.provider" placeholder="Joe's Garage">
+                </div>
+                <div class="form-group">
+                    <label>Cost ($)</label>
+                    <input type="number" step="0.01" x-model.number="serviceForm.cost">
+                </div>
+                <div class="form-group">
+                    <label>Parts (comma-separated)</label>
+                    <input type="text" x-model="serviceForm.parts_str" placeholder="oil filter, 5qt 5W30">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>Notes</label>
+                    <textarea x-model="serviceForm.notes" rows="2"></textarea>
+                </div>
+            </div>
+            <!-- Schedule-link prompt -->
+            <template x-if="serviceFormMode !== 'edit' && serviceMatchingSchedule()">
+                <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.25);
+                            border-radius:var(--radius); padding:0.6rem 0.85rem; font-size:0.85rem; margin:0.5rem 0;">
+                    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                        <input type="checkbox" x-model="serviceForm.link_to_schedule">
+                        <span>
+                            This looks like the
+                            <strong x-text="'"' + serviceMatchingSchedule().data.service_type + '"'"></strong>
+                            you had scheduled — link it so next-due moves forward.
+                        </span>
+                    </label>
+                </div>
+            </template>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showServiceForm = false">Cancel</button>
+                <button class="btn btn-primary" @click="saveService()"
+                        :disabled="!serviceForm.date || !serviceForm.service_type">
+                    Save
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- New Action Modal -->
     <div class="modal-overlay" x-show="showNewAction" @click.self="showNewAction = false"
          x-transition style="display:none;">
@@ -3410,6 +3583,14 @@ function lifeos() {
                         last_service_date: '', last_service_mileage: null,
                         estimated_cost: null, provider: '', notes: '' },
         editingScheduleId: null,
+
+        // Phase 4: service-log form state
+        showServiceForm: false,
+        serviceFormMode: 'create',
+        serviceForm: { date: '', mileage: null, service_type: '', category: 'preventive',
+                       provider: '', cost: null, parts_str: '', notes: '',
+                       link_to_schedule: true },
+        editingServiceId: null,
         home: { contractorFilter: '' },
 
         // Pets (Phase 8)
@@ -3966,10 +4147,12 @@ function lifeos() {
 
         async loadVehicle(id) {
             try {
-                const [vehicleRes, actionsRes, schedulesRes] = await Promise.all([
+                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes] = await Promise.all([
                     fetch(`/api/records/${id}`).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
                     fetch(`/api/actions?domain=auto&status=pending&per_page=50`).then((r) => r.json()),
                     fetch(`/api/records?record_type=maintenance_schedule&per_page=100`).then((r) => r.json()),
+                    fetch(`/api/records?record_type=service_record&per_page=200`).then((r) => r.json()),
+                    fetch(`/api/vehicles/${id}/cost-summary`).then((r) => r.ok ? r.json() : { data: null }),
                 ]);
                 const v = vehicleRes.data;
                 // Only the auto-domain actions tied to this vehicle's schedules
@@ -3989,6 +4172,9 @@ function lifeos() {
                     const days = (new Date(a.due_date) - new Date()) / (1000 * 60 * 60 * 24);
                     return days >= 0 && days <= 30;
                 });
+                const myServices = (servicesRes.data || []).filter(
+                    (s) => s.data?.vehicle_record_id === id
+                );
                 this.currentVehicle = {
                     ...v,
                     _overdueActionCount: overdue.length,
@@ -4002,6 +4188,11 @@ function lifeos() {
                         };
                         return dKey(a) - dKey(b);
                     }),
+                    _services: myServices.slice().sort((a, b) => {
+                        // Newest first.
+                        return (b.data?.date || '').localeCompare(a.data?.date || '');
+                    }),
+                    _costs: costRes?.data || null,
                 };
                 this.vehicleMileageInput = '';
             } catch (e) {
@@ -4362,6 +4553,132 @@ function lifeos() {
             } catch (e) {
                 this.toast('Delete failed: ' + (e.message || ''), 'error');
             }
+        },
+
+        // ── Service records (Auto Phase 4) ─────────────────────────────
+        openServiceForm(existing) {
+            const today = new Date().toISOString().slice(0, 10);
+            if (existing) {
+                const d = existing.data || {};
+                this.serviceFormMode = 'edit';
+                this.editingServiceId = existing.id;
+                this.serviceForm = {
+                    date: d.date || today,
+                    mileage: d.mileage ?? null,
+                    service_type: d.service_type || '',
+                    category: d.category || 'preventive',
+                    provider: d.provider || '',
+                    cost: d.cost ?? null,
+                    parts_str: (d.parts || []).join(', '),
+                    notes: d.notes || '',
+                    link_to_schedule: false,
+                };
+            } else {
+                this.serviceFormMode = 'create';
+                this.editingServiceId = null;
+                this.serviceForm = {
+                    date: today,
+                    mileage: this.currentVehicle?.data?.current_mileage ?? null,
+                    service_type: '',
+                    category: 'preventive',
+                    provider: '',
+                    cost: null,
+                    parts_str: '',
+                    notes: '',
+                    link_to_schedule: true,
+                };
+            }
+            this.showServiceForm = true;
+        },
+
+        // Find an active schedule whose service_type matches the current form
+        // entry (case-insensitive). Used to power the "link it?" prompt.
+        serviceMatchingSchedule() {
+            const t = (this.serviceForm.service_type || '').trim().toLowerCase();
+            if (!t) return null;
+            return (this.currentVehicle?._schedules || []).find(
+                (s) => (s.data?.service_type || '').trim().toLowerCase() === t
+            ) || null;
+        },
+
+        async saveService() {
+            if (!this.currentVehicle?.id) return;
+            const f = this.serviceForm;
+            const parts = (f.parts_str || '')
+                .split(',').map((p) => p.trim()).filter(Boolean);
+            const payload = {
+                vehicle_record_id: this.currentVehicle.id,
+                date: f.date,
+                service_type: f.service_type,
+                category: f.category || 'preventive',
+            };
+            if (f.mileage != null && f.mileage !== '') payload.mileage = f.mileage;
+            if (f.provider) payload.provider = f.provider;
+            if (f.cost != null && f.cost !== '') payload.cost = f.cost;
+            if (parts.length) payload.parts = parts;
+            if (f.notes) payload.notes = f.notes;
+
+            try {
+                if (this.serviceFormMode === 'edit') {
+                    // PATCH never accepts vehicle_record_id; drop it.
+                    const { vehicle_record_id, ...patch } = payload;
+                    await this.api(`/api/service-records/${this.editingServiceId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(patch),
+                    });
+                    this.toast('Service updated');
+                } else {
+                    let url = '/api/service-records';
+                    const match = this.serviceMatchingSchedule();
+                    if (match && f.link_to_schedule) {
+                        url += `?link_to_schedule_id=${encodeURIComponent(match.id)}`;
+                    }
+                    await this.api(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    this.toast('Service logged');
+                }
+                this.showServiceForm = false;
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Save failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        async deleteService(id) {
+            if (!confirm('Delete this service record? Cost rollups will adjust.')) return;
+            try {
+                await this.api(`/api/service-records/${id}`, { method: 'DELETE' });
+                this.toast('Service deleted');
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Delete failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        // Tiny inline SVG line chart of the last 5 years of spend.
+        renderCostByYear(byYear) {
+            const today = new Date();
+            const years = [];
+            for (let i = 4; i >= 0; i--) years.push(today.getFullYear() - i);
+            const points = years.map((y) => byYear[String(y)] || 0);
+            const max = Math.max(...points, 1);
+            const W = 100, H = 22;
+            const stepX = W / Math.max(years.length - 1, 1);
+            const coords = points.map((p, i) => [i * stepX, H - 3 - (p / max) * (H - 6)]);
+            const linePath = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c[0].toFixed(2)} ${c[1].toFixed(2)}`).join(' ');
+            const dots = coords.map((c, i) =>
+                `<circle cx="${c[0].toFixed(2)}" cy="${c[1].toFixed(2)}" r="1.2" fill="var(--primary)">` +
+                `<title>${years[i]}: $${points[i].toFixed(2)}</title></circle>`
+            ).join('');
+            const labels = years.map((y, i) =>
+                `<text x="${(i * stepX).toFixed(2)}" y="${H}" font-size="2.2" fill="var(--text-muted)" text-anchor="middle">${y}</text>`
+            ).join('');
+            return `<svg viewBox="0 0 ${W} ${H + 2}" preserveAspectRatio="none" style="width:100%; height:60px;">` +
+                   `<path d="${linePath}" stroke="var(--primary)" stroke-width="0.6" fill="none"/>${dots}${labels}</svg>`;
         },
 
         renderScheduleTimeline(schedules) {

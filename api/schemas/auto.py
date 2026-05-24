@@ -5,6 +5,7 @@ Shape definitions for record_type values: vehicle, maintenance_schedule,
 service_record.
 """
 
+import datetime
 from datetime import date
 from typing import Optional
 
@@ -50,9 +51,15 @@ class MaintenanceSchedule(_Base):
 
 class ServiceRecord(_Base):
     vehicle_record_id: Optional[str] = None
-    date: Optional[date] = None
+    # `date` shadows the imported `date` type — pydantic resolves the bare
+    # `Optional[date]` as None-only because the field name dominates the
+    # local namespace. Use the qualified path to disambiguate.
+    date: Optional[datetime.date] = None
     mileage: Optional[int] = None
     service_type: Optional[str] = None
+    # Spec-defined enum; not enforced via Literal so legacy / external blobs
+    # with novel category strings still round-trip without 422s.
+    category: Optional[str] = Field(default="preventive")
     provider: Optional[str] = None
     cost: Optional[float] = None
     parts: list[str] = Field(default_factory=list)
