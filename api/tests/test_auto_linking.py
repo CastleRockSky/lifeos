@@ -17,8 +17,8 @@ import urllib.request
 import pytest
 
 from auto_linking import (
-    _normalise_vin, _doc_keys, _vehicle_keys,
-    is_vin_tail_mileage, match_document_to_vehicle,
+    _normalise_vin, _doc_keys, _vehicle_keys, _split_combined_vehicle,
+    is_phantom_vehicle, is_vin_tail_mileage, match_document_to_vehicle,
 )
 
 
@@ -123,6 +123,120 @@ def test_match_skips_year_make_model_when_any_field_missing():
     even if a single vehicle happens to be the same year/make."""
     extracted = {"vehicle_year": 2022, "vehicle_make": "Toyota"}
     assert match_document_to_vehicle(extracted, [_SIENNA]) is None
+
+
+# ─── _split_combined_vehicle (pure) ─────────────────────────────────────
+
+
+def test_split_combined_vehicle_basic():
+    """Service receipts often return "Toyota Sienna" as one field rather
+    than split make/model. The fallback splits on first token = make."""
+    assert _split_combined_vehicle("Toyota Sienna") == ("Toyota", "Sienna")
+
+
+def test_split_combined_vehicle_drops_leading_year():
+    assert _split_combined_vehicle("2022 Toyota Sienna") == ("Toyota", "Sienna")
+    assert _split_combined_vehicle("2003 Dodge Dakota") == ("Dodge", "Dakota")
+
+
+def test_split_combined_vehicle_handles_multi_word_models():
+    """"Honda Civic Si" — model is everything after the make."""
+    assert _split_combined_vehicle("Honda Civic Si") == ("Honda", "Civic Si")
+
+
+def test_split_combined_vehicle_returns_none_for_unparseable():
+    assert _split_combined_vehicle("") == (None, None)
+    assert _split_combined_vehicle("Toyota") == (None, None)  # need ≥ 2 tokens
+    assert _split_combined_vehicle(None) == (None, None)
+    assert _split_combined_vehicle(42) == (None, None)
+
+
+def test_split_combined_vehicle_ignores_non_year_4digit_first_token():
+    """Don't strip a 4-digit token that isn't a plausible year (e.g. a
+    fleet number that happened to be four digits)."""
+    assert _split_combined_vehicle("1234 Toyota Sienna") == ("1234", "Toyota Sienna")
+
+
+def test_doc_keys_falls_back_to_combined_vehicle_field():
+    """The real-world failure: service receipts return ``"vehicle":
+    "Toyota Sienna"`` instead of split keys. _doc_keys must catch it."""
+    keys = _doc_keys({"vehicle": "Toyota Sienna"})
+    assert keys["make"] == "toyota"
+    assert keys["model"] == "sienna"
+
+
+def test_doc_keys_prefers_split_fields_over_combined():
+    """If both are present, split keys win (they're more authoritative)."""
+    keys = _doc_keys({
+        "vehicle": "Honda Civic",
+        "vehicle_make": "Toyota",
+        "vehicle_model": "Sienna",
+    })
+    assert keys["make"] == "toyota"
+    assert keys["model"] == "sienna"
+
+
+def test_doc_keys_uses_combined_only_when_split_is_partial():
+    """If only `vehicle_make` exists (missing model), still try the
+    combined field for the model half."""
+    keys = _doc_keys({"vehicle_make": "Toyota", "vehicle": "Toyota Sienna"})
+    assert keys["make"] == "toyota"
+    assert keys["model"] == "sienna"
+
+
+# ─── is_phantom_vehicle (pure) ──────────────────────────────────────────
+
+
+def test_phantom_vehicle_flags_missing_model():
+    """The real Volkswagen case: AI created a vehicle with model=null
+    out of a "Dual Registration Type" form field on a Sienna
+    registration."""
+    proposed = {"year": 2022, "make": "Volkswagen", "model": None,
+                "notes": "Dual registration type"}
+    reason = is_phantom_vehicle(proposed, [])
+    assert reason is not None
+    assert "model" in reason.lower()
+
+
+def test_phantom_vehicle_flags_duplicate_when_no_vin():
+    """No VIN + triple match against an existing active vehicle = almost
+    certainly a duplicate (e.g. a second pass on the same registration)."""
+    proposed = {"year": 2022, "make": "Toyota", "model": "Sienna"}
+    existing = [{"id": "veh-1",
+                 "data": {"year": 2022, "make": "Toyota", "model": "Sienna",
+                          "vin": "5TDJRKEC1NS129572"}}]
+    reason = is_phantom_vehicle(proposed, existing)
+    assert reason is not None
+    assert "veh-1" in reason
+
+
+def test_phantom_vehicle_allows_legitimate_new_record():
+    """Different y/m/m, no collision → safe to create."""
+    proposed = {"year": 2003, "make": "Dodge", "model": "Dakota",
+                "vin": "1B7HG13Z32S700001"}
+    existing = [{"id": "veh-1",
+                 "data": {"year": 2022, "make": "Toyota", "model": "Sienna"}}]
+    assert is_phantom_vehicle(proposed, existing) is None
+
+
+def test_phantom_vehicle_allows_when_proposed_has_vin():
+    """A VIN-bearing proposal is authoritative — even if y/m/m matches
+    an existing one (rare case: two of the same model), trust the VIN
+    and let it through. The merge UI exists for cleanup."""
+    proposed = {"year": 2022, "make": "Toyota", "model": "Sienna",
+                "vin": "5TDJRKEC1NS999999"}
+    existing = [{"id": "veh-1",
+                 "data": {"year": 2022, "make": "Toyota", "model": "Sienna"}}]
+    assert is_phantom_vehicle(proposed, existing) is None
+
+
+def test_phantom_vehicle_allows_new_y_m_m_with_no_vin():
+    """No VIN but no duplicate either — fine. Manual entries from the UI
+    often start without VIN and that's expected."""
+    proposed = {"year": 2020, "make": "Subaru", "model": "Outback"}
+    existing = [{"id": "veh-1",
+                 "data": {"year": 2022, "make": "Toyota", "model": "Sienna"}}]
+    assert is_phantom_vehicle(proposed, existing) is None
 
 
 # ─── is_vin_tail_mileage (pure) ─────────────────────────────────────────

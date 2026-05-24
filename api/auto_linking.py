@@ -52,17 +52,92 @@ def _vehicle_keys(vehicle_data: dict) -> dict:
     }
 
 
+_COMBINED_VEHICLE_KEYS = ("vehicle", "vehicle_description", "vehicle_name")
+
+
+def _split_combined_vehicle(raw) -> tuple[Optional[str], Optional[str]]:
+    """Service receipts often return the vehicle as a single combined
+    string like "Toyota Sienna" or "2022 Toyota Sienna" instead of the
+    split make/model fields that registrations use. Best-effort split:
+    drop a leading 4-digit year if present, then take the first token as
+    make and the rest as model. None,None on anything unparseable.
+    """
+    if not isinstance(raw, str):
+        return None, None
+    tokens = raw.strip().split()
+    if not tokens:
+        return None, None
+    # Drop a leading 4-digit year (1900-2099) so "2022 Toyota Sienna" → "Toyota Sienna".
+    if tokens[0].isdigit() and len(tokens[0]) == 4 and 1900 <= int(tokens[0]) <= 2099:
+        tokens = tokens[1:]
+    if len(tokens) < 2:
+        return None, None
+    return tokens[0], " ".join(tokens[1:])
+
+
 def _doc_keys(extracted: dict) -> dict:
     """Pull the comparable fields off a document's ai_extracted_data blob.
     The AI prompt uses ``vehicle_year/make/model`` plus a top-level ``vin``;
     accept either ``vin`` or ``vehicle_vin`` so future prompt tweaks don't
-    silently break linking."""
+    silently break linking. Falls back to splitting a combined ``vehicle``
+    string ("Toyota Sienna") into make/model — common shape on service
+    receipts, distinct from the explicit split on registrations.
+    """
+    make = extracted.get("vehicle_make") or extracted.get("make")
+    model = extracted.get("vehicle_model") or extracted.get("model")
+    if not make or not model:
+        # Try the combined-field fallback.
+        for key in _COMBINED_VEHICLE_KEYS:
+            split_make, split_model = _split_combined_vehicle(extracted.get(key))
+            if split_make and split_model:
+                make = make or split_make
+                model = model or split_model
+                break
     return {
         "vin": _normalise_vin(extracted.get("vin") or extracted.get("vehicle_vin")),
         "year": _norm_year(extracted.get("vehicle_year") or extracted.get("year")),
-        "make": _norm_str(extracted.get("vehicle_make") or extracted.get("make")),
-        "model": _norm_str(extracted.get("vehicle_model") or extracted.get("model")),
+        "make": _norm_str(make),
+        "model": _norm_str(model),
     }
+
+
+def is_phantom_vehicle(
+    proposed: dict,
+    existing_vehicles: list[dict],
+) -> Optional[str]:
+    """Sanity-check an AI-extracted ``vehicle`` blob before inserting it.
+
+    Returns a short reason string if the record looks like a phantom (and
+    should be skipped), or None to indicate it's safe to create. Real-world
+    cases that motivated this:
+
+    - The AI hallucinated a ``Volkswagen 2022`` vehicle out of a "Dual
+      Registration Type" form field on a Sienna registration. The blob had
+      ``model: null``. → Require model to be non-empty.
+    - The AI re-extracted the same vehicle twice across different runs of
+      the same registration doc. → No VIN + a y/m/m match against an
+      existing active vehicle is almost certainly a duplicate.
+
+    Caller still owns the decision (e.g. it might want to link the doc to
+    the existing match instead of skipping silently); this helper just
+    flags.
+    """
+    model = (proposed.get("model") or "").strip() if isinstance(proposed.get("model"), str) else None
+    if not model:
+        return "model field missing — likely hallucinated from a form-field misread"
+
+    p_keys = _vehicle_keys(proposed)
+    # If the proposed blob lacks a VIN AND triple-matches an existing active
+    # vehicle, treat it as a duplicate.
+    if not p_keys["vin"]:
+        for v in existing_vehicles:
+            e_keys = _vehicle_keys(v.get("data") or {})
+            if (e_keys["year"] and e_keys["year"] == p_keys["year"]
+                    and e_keys["make"] and e_keys["make"] == p_keys["make"]
+                    and e_keys["model"] and e_keys["model"] == p_keys["model"]):
+                return f"matches existing vehicle {v['id']} on year+make+model and has no VIN"
+
+    return None
 
 
 def is_vin_tail_mileage(mileage, vin) -> bool:

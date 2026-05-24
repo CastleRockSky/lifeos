@@ -290,6 +290,37 @@ async def run_ai_analysis(
                 for sr in result.structured_records:
                     rtype = sr["record_type"]
                     data = sr["data"] or {}
+
+                    # Phantom-vehicle guard. The AI has been seen
+                    # hallucinating a second vehicle from registration form
+                    # fields (e.g. "Dual Registration Type" → fake VW). Skip
+                    # the insert when the blob fails the sanity check; the
+                    # auto-linker still attaches the doc to the real vehicle
+                    # below.
+                    if rtype == "vehicle":
+                        try:
+                            from auto_linking import is_phantom_vehicle
+                            existing_rows = await conn.fetch(
+                                """SELECT id, data FROM structured_records
+                                   WHERE record_type='vehicle' AND deleted_at IS NULL
+                                     AND (data->>'status' IS NULL
+                                          OR data->>'status' NOT IN
+                                             ('merged','archived','sold','totaled'))"""
+                            )
+                            existing = [
+                                {"id": str(r["id"]),
+                                 "data": r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])}
+                                for r in existing_rows
+                            ]
+                            phantom_reason = is_phantom_vehicle(data, existing)
+                            if phantom_reason:
+                                logger.warning(
+                                    f"Doc {doc_id}: skipping AI-extracted vehicle — {phantom_reason}"
+                                )
+                                continue
+                        except Exception as guard_err:
+                            logger.warning(f"Phantom-vehicle guard failed for {doc_id}: {guard_err}")
+
                     identity_key = None
                     if rtype in (
                         "medication", "provider", "condition",
