@@ -418,19 +418,23 @@
                         }
                         const json = await res.json();
                         const doc = json.data;
-                        this.recentCaptures.unshift({
-                            id: doc.id,
-                            title: doc.title || 'Mobile capture',
-                            ai_status: doc.ai_status,
-                            domain: null,
-                            category: null,
-                            review_status: null,
-                            captured_at: new Date().toISOString(),
-                        });
-                        if (this.recentCaptures.length > 10) {
-                            this.recentCaptures = this.recentCaptures.slice(0, 10);
+                        if (doc.skipped) {
+                            this.toast(`Already on file: "${doc.duplicate_of_title}"`, 'ok');
+                        } else {
+                            this.recentCaptures.unshift({
+                                id: doc.id,
+                                title: doc.title || 'Mobile capture',
+                                ai_status: doc.ai_status,
+                                domain: null,
+                                category: null,
+                                review_status: null,
+                                captured_at: new Date().toISOString(),
+                            });
+                            if (this.recentCaptures.length > 10) {
+                                this.recentCaptures = this.recentCaptures.slice(0, 10);
+                            }
+                            this.toast('Uploaded — analyzing…', 'ok');
                         }
-                        this.toast('Uploaded — analyzing…', 'ok');
                         this.reset();
                     } catch (e) {
                         this.toast('Upload failed: ' + e.message, 'error');

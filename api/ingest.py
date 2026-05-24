@@ -317,7 +317,7 @@ async def run_ai_analysis(
                                     source_document_id = $2,
                                     domain = COALESCE(domain, $3)
                                 WHERE id = $4
-                            """, json.dumps(merged, default=str),
+                            """, merged,
                                 uuid.UUID(doc_id), apply_domain, existing["id"])
                             record_id = existing["id"]
 
@@ -328,7 +328,7 @@ async def run_ai_analysis(
                             VALUES ($1, $2, $3, $4::jsonb, $5)
                             RETURNING id
                         """, rtype, apply_domain, resolved_subject_id,
-                            json.dumps(data, default=str), uuid.UUID(doc_id))
+                            data, uuid.UUID(doc_id))
                         record_id = new_row["id"]
 
                     # Recurring action item for known record types
@@ -495,6 +495,51 @@ async def ingest_file(
     if not source_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
+    # Read source first so we can hash and short-circuit exact duplicates
+    # before writing a redundant copy to disk.
+    async with aiofiles.open(file_path, 'rb') as src:
+        content = await src.read()
+
+    file_size = len(content)
+    file_hash = hashlib.sha256(content).hexdigest()
+    mime_type = magic.from_buffer(content[:8192], mime=True)
+
+    from helpers import file_type_from_mime
+    f_type = file_type_from_mime(mime_type)
+
+    # Exact-hash short-circuit: if a non-deleted doc with these bytes already
+    # exists, don't ingest it again. Return a "skipped" result pointing to it.
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            """SELECT id, title, mime_type, file_size_bytes, ai_status,
+                      embedding_status, text_length, page_count, ocr_applied
+               FROM documents
+               WHERE file_hash = $1 AND deleted_at IS NULL
+               ORDER BY created_at ASC LIMIT 1""",
+            file_hash,
+        )
+    if existing:
+        logger.info(
+            f"Skipping ingest: file_hash matches existing doc {existing['id']} "
+            f"(original_filename={original_filename})"
+        )
+        return {
+            "id": str(existing["id"]),
+            "title": existing["title"],
+            "file_type": file_type_from_mime(existing["mime_type"] or ""),
+            "mime_type": existing["mime_type"],
+            "file_size_bytes": existing["file_size_bytes"],
+            "text_length": existing["text_length"] or 0,
+            "chunks": 0,
+            "ocr_applied": bool(existing["ocr_applied"]),
+            "embedding_status": existing["embedding_status"],
+            "ai_status": existing["ai_status"],
+            "skipped": True,
+            "skipped_reason": "exact_duplicate",
+            "duplicate_of_id": str(existing["id"]),
+            "duplicate_of_title": existing["title"],
+        }
+
     doc_id = uuid.uuid4()
     doc_id_str = str(doc_id)
     prefix = doc_id_str[:2]
@@ -503,18 +548,9 @@ async def ingest_file(
     os.makedirs(file_dir, exist_ok=True)
     dest_path = os.path.join(file_dir, f"{doc_id_str}{ext}")
 
-    # Copy file to storage
-    async with aiofiles.open(file_path, 'rb') as src:
-        content = await src.read()
+    # Copy file to storage (only after we've confirmed it's not a duplicate)
     async with aiofiles.open(dest_path, 'wb') as dst:
         await dst.write(content)
-
-    file_size = len(content)
-    file_hash = hashlib.sha256(content).hexdigest()
-    mime_type = magic.from_buffer(content[:8192], mime=True)
-
-    from helpers import file_type_from_mime
-    f_type = file_type_from_mime(mime_type)
 
     result = extract_text_with_metadata(dest_path, mime_type)
     content_text = result["text"]

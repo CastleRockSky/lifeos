@@ -94,7 +94,10 @@ async def _process_file(file_path: Path, processed_dir: Path, failed_dir: Path):
         _stats["last_ingested_at"] = datetime.now(timezone.utc).isoformat()
         _file_sizes.pop(str(file_path), None)
 
-        logger.info(f"Inbox: ingested {filename} -> doc {result['id']}")
+        if result.get("skipped"):
+            logger.info(f"Inbox: {filename} skipped as exact duplicate of doc {result['id']}")
+        else:
+            logger.info(f"Inbox: ingested {filename} -> doc {result['id']}")
 
     except Exception as e:
         logger.error(f"Inbox: failed to ingest {filename}: {e}")

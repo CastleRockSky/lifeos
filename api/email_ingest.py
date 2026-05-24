@@ -435,13 +435,16 @@ async def process_email(raw_bytes: bytes) -> dict:
                 source="email_forward",
             )
             doc_id = result["id"]
-            docs_created.append(doc_id)
-            # Link doc to the email row
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE documents SET email_message_id = $1 WHERE id = $2",
-                    email_row_id, uuid.UUID(doc_id),
-                )
+            if result.get("skipped"):
+                logger.info(f"Email attachment was an exact duplicate of {doc_id}; not re-linking")
+            else:
+                docs_created.append(doc_id)
+                # Link doc to the email row
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE documents SET email_message_id = $1 WHERE id = $2",
+                        email_row_id, uuid.UUID(doc_id),
+                    )
         except Exception as e:
             logger.exception(f"Email attachment failed: {att.get('filename')}: {e}")
             errors.append(f"{att.get('filename')}: {e}")
@@ -475,12 +478,15 @@ async def process_email(raw_bytes: bytes) -> dict:
                 source="email_forward",
             )
             doc_id = result["id"]
-            docs_created.append(doc_id)
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE documents SET email_message_id = $1 WHERE id = $2",
-                    email_row_id, uuid.UUID(doc_id),
-                )
+            if result.get("skipped"):
+                logger.info(f"Email body was an exact duplicate of {doc_id}; not re-linking")
+            else:
+                docs_created.append(doc_id)
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE documents SET email_message_id = $1 WHERE id = $2",
+                        email_row_id, uuid.UUID(doc_id),
+                    )
         except Exception as e:
             logger.exception(f"Email body-as-doc failed: {e}")
             errors.append(f"body: {e}")
