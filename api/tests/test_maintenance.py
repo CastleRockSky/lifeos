@@ -300,7 +300,7 @@ class TestMaintenanceAPI:
             for s in scheds.get("data", []):
                 if s["data"].get("vehicle_record_id") == vid:
                     _request("DELETE", f"/api/maintenance-schedules/{s['id']}")
-            _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
+            _request("DELETE", f"/api/records/{vid}")
 
     # — Templates —
 

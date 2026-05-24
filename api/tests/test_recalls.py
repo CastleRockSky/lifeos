@@ -261,7 +261,7 @@ class TestRecallsAPI:
             _, rec = _request("GET", f"/api/vehicles/{vid}/recalls")
             for r in rec.get("data", []):
                 _request("DELETE", f"/api/records/{r['id']}")
-            _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
+            _request("DELETE", f"/api/records/{vid}")
 
     def test_list_recalls_empty_for_new_vehicle(self, vehicle_id):
         status, body = _request("GET", f"/api/vehicles/{vehicle_id}/recalls")

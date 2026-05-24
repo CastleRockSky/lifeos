@@ -204,7 +204,7 @@ class TestMileageHistoryAPI:
             assert d["points"] == []
             assert d["miles_per_day_recent"] is None
         finally:
-            _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
+            _request("DELETE", f"/api/records/{vid}")
 
     def test_rejects_invalid_granularity(self):
         # Need any vehicle; create + tear down.
@@ -216,7 +216,7 @@ class TestMileageHistoryAPI:
                 f"/api/vehicles/{vid}/mileage-history?granularity=lightyears")
             assert status == 400
         finally:
-            _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
+            _request("DELETE", f"/api/records/{vid}")
 
     def test_rejects_invalid_since(self):
         _, body = _request("POST", "/api/vehicles",
@@ -227,7 +227,7 @@ class TestMileageHistoryAPI:
                 f"/api/vehicles/{vid}/mileage-history?since=not-a-date")
             assert status == 400
         finally:
-            _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
+            _request("DELETE", f"/api/records/{vid}")
 
     def test_404_for_unknown_vehicle(self):
         status, _ = _request("GET",

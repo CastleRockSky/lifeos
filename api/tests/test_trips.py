@@ -330,8 +330,7 @@ class TestTripsAPI:
             _, recs = _json_request("GET", f"/api/trips?vehicle_id={vid}&per_page=500")
             for r in recs.get("data", []):
                 _json_request("DELETE", f"/api/trips/{r['id']}")
-            _json_request("POST", f"/api/vehicles/{vid}/archive",
-                          {"new_status": "archived"})
+            _json_request("DELETE", f"/api/records/{vid}")
 
     def test_create_trip_minimal(self, vehicle_id):
         status, body = _json_request("POST", "/api/trips", {

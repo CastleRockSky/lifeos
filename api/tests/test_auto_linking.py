@@ -180,7 +180,7 @@ class TestVehicleDocumentsAPI:
             assert body["data"] == {}
             assert body["meta"]["total"] == 0
         finally:
-            _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
+            _request("DELETE", f"/api/records/{vid}")
 
     def test_patch_linked_record_id_round_trips_via_documents_endpoint(self):
         # Need an existing auto document. Skip if the live DB has none — the
@@ -211,7 +211,7 @@ class TestVehicleDocumentsAPI:
                                  {"linked_record_id": original_link})
             assert status == 200
         finally:
-            _request("POST", f"/api/vehicles/{vid}/archive", {"new_status": "archived"})
+            _request("DELETE", f"/api/records/{vid}")
 
     def test_patch_rejects_nonexistent_linked_record(self):
         status, body = _request("GET", "/api/documents?domain=auto&per_page=1")

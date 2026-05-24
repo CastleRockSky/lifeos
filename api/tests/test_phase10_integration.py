@@ -288,8 +288,5 @@ class TestPhase10API:
                 assert e.code == 400
         finally:
             urllib.request.urlopen(urllib.request.Request(
-                f"{API_BASE}/api/vehicles/{vid}/archive",
-                method="POST",
-                data=json.dumps({"new_status": "archived"}).encode(),
-                headers={"Content-Type": "application/json"},
+                f"{API_BASE}/api/records/{vid}", method="DELETE",
             ), timeout=10)
