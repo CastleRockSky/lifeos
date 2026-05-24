@@ -24,6 +24,9 @@ class DocumentUpdate(BaseModel):
     domain: Optional[str] = None
     category: Optional[str] = None
     subject_id: Optional[str] = None
+    # Full multi-subject set; first entry is treated as the primary. When
+    # provided, replaces the entire subject set for this document.
+    subject_ids: Optional[list[str]] = None
     tags: Optional[list[str]] = None
     review_status: Optional[str] = None
     document_date: Optional[str] = None

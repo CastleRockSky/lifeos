@@ -59,6 +59,50 @@ CREATE TABLE documents (
     deleted_at TIMESTAMPTZ
 );
 
+-- ── Document Subjects (many-to-many) ────────────────────────────────────
+-- documents.subject_id is the denormalised primary subject; this table is
+-- the source of truth for the full subject list (including secondaries).
+CREATE TABLE document_subjects (
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    subject_id  UUID NOT NULL REFERENCES subjects(id)  ON DELETE CASCADE,
+    is_primary  BOOLEAN NOT NULL DEFAULT false,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (document_id, subject_id)
+);
+CREATE INDEX idx_document_subjects_subject ON document_subjects(subject_id);
+CREATE UNIQUE INDEX idx_document_subjects_primary
+    ON document_subjects(document_id) WHERE is_primary;
+
+-- Keep documents.subject_id and the junction's primary row in sync so the
+-- existing single-subject code paths (upload form, AI subject resolver,
+-- inbox watcher, email forwarding) automatically maintain the junction.
+CREATE OR REPLACE FUNCTION sync_documents_primary_subject() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.subject_id IS DISTINCT FROM OLD.subject_id THEN
+        IF NEW.subject_id IS NULL THEN
+            DELETE FROM document_subjects
+            WHERE document_id = NEW.id AND is_primary;
+        ELSE
+            UPDATE document_subjects
+               SET is_primary = false
+             WHERE document_id = NEW.id
+               AND is_primary
+               AND subject_id <> NEW.subject_id;
+
+            INSERT INTO document_subjects (document_id, subject_id, is_primary)
+                VALUES (NEW.id, NEW.subject_id, true)
+                ON CONFLICT (document_id, subject_id)
+                DO UPDATE SET is_primary = true;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER documents_sync_primary_subject
+AFTER INSERT OR UPDATE OF subject_id ON documents
+FOR EACH ROW EXECUTE FUNCTION sync_documents_primary_subject();
+
 -- ── Document Chunks ──────────────────────────────────────────────────────
 CREATE TABLE document_chunks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -70,8 +70,9 @@ async def list_subjects():
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT s.*,
-                (SELECT COUNT(*) FROM documents d
-                 WHERE d.subject_id = s.id AND d.deleted_at IS NULL) as document_count
+                (SELECT COUNT(*) FROM document_subjects ds
+                 JOIN documents d ON d.id = ds.document_id AND d.deleted_at IS NULL
+                 WHERE ds.subject_id = s.id) as document_count
             FROM subjects s
             WHERE s.deleted_at IS NULL
             ORDER BY s.is_primary DESC, s.name

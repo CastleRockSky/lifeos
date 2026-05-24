@@ -27,6 +27,49 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
+async def _set_document_subjects(conn, document_id: uuid.UUID, subject_ids: list[str]):
+    """Replace the document's subject set. First id becomes the primary.
+
+    Also keeps documents.subject_id in sync with the primary so existing
+    single-subject queries continue to work. An empty/None list clears
+    all subjects.
+    """
+    # Validate + dedupe while preserving order.
+    seen: set[uuid.UUID] = set()
+    parsed: list[uuid.UUID] = []
+    for sid in subject_ids or []:
+        try:
+            u = uuid.UUID(sid)
+        except (ValueError, TypeError):
+            raise HTTPException(400, f"Invalid subject id: {sid}")
+        if u in seen:
+            continue
+        seen.add(u)
+        parsed.append(u)
+
+    if parsed:
+        existing = await conn.fetch(
+            "SELECT id FROM subjects WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+            parsed,
+        )
+        if len(existing) != len(parsed):
+            raise HTTPException(400, "One or more subject_ids not found")
+
+    await conn.execute(
+        "DELETE FROM document_subjects WHERE document_id = $1", document_id
+    )
+    primary = parsed[0] if parsed else None
+    for idx, sid in enumerate(parsed):
+        await conn.execute(
+            """INSERT INTO document_subjects (document_id, subject_id, is_primary)
+               VALUES ($1, $2, $3)""",
+            document_id, sid, idx == 0,
+        )
+    await conn.execute(
+        "UPDATE documents SET subject_id = $2 WHERE id = $1", document_id, primary
+    )
+
+
 # ── Upload ──────────────────────────────────────────────────────────────
 
 @router.post("/upload")
@@ -37,9 +80,13 @@ async def upload_document(
     domain: str = Form(None),
     category: str = Form(None),
     subject_id: str = Form(None),
+    subject_ids: str = Form(""),  # comma-separated; first is primary
     tags: str = Form(""),
 ):
     user_email = get_user_email(request)
+
+    sid_list = [s.strip() for s in subject_ids.split(",") if s.strip()] if subject_ids else []
+    primary_sid = sid_list[0] if sid_list else subject_id
 
     from config import get_settings as _get_settings
     settings = _get_settings()
@@ -76,13 +123,20 @@ async def upload_document(
             title=title or file.filename or "Untitled",
             domain=domain,
             category=category,
-            subject_id=subject_id,
+            subject_id=primary_sid,
             tags=tag_list,
             source="upload",
             uploaded_by=user_email,
         )
     finally:
         os.unlink(tmp_path)
+
+    # Install full subject set on top of the primary (the trigger handled the
+    # primary already; the helper rewrites the junction with the full ordered list).
+    if len(sid_list) > 1 and not result.get("skipped"):
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            await _set_document_subjects(conn, uuid.UUID(result["id"]), sid_list)
 
     await audit_log("upload", user_email, "documents", result["id"],
                     {"filename": file.filename, "size": result["file_size_bytes"]})
@@ -100,6 +154,7 @@ async def upload_multi_image(
     domain: str = Form(None),
     category: str = Form(None),
     subject_id: str = Form(None),
+    subject_ids: str = Form(""),  # comma-separated; first is primary
     tags: str = Form(""),
 ):
     """Accept N images (in capture order), merge into a single PDF, ingest as one doc.
@@ -152,17 +207,25 @@ async def upload_multi_image(
         original_name = f"{Path(first_filename).stem}_{len(files)}pages.pdf"
         doc_title = title or f"Mobile capture ({len(files)} page{'s' if len(files) != 1 else ''})"
 
+        sid_list = [s.strip() for s in subject_ids.split(",") if s.strip()] if subject_ids else []
+        primary_sid = sid_list[0] if sid_list else subject_id
+
         result = await ingest_file(
             tmp_path,
             original_filename=original_name,
             title=doc_title,
             domain=domain,
             category=category,
-            subject_id=subject_id,
+            subject_id=primary_sid,
             tags=tag_list,
             source="mobile_capture",
             uploaded_by=user_email,
         )
+
+        if len(sid_list) > 1 and not result.get("skipped"):
+            pool = get_pool()
+            async with pool.acquire() as conn:
+                await _set_document_subjects(conn, uuid.UUID(result["id"]), sid_list)
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -248,7 +311,13 @@ async def list_documents(
     if category:
         idx += 1; conditions.append(f"d.category = ${idx}"); params.append(category)
     if subject_id:
-        idx += 1; conditions.append(f"d.subject_id = ${idx}"); params.append(uuid.UUID(subject_id))
+        idx += 1
+        # Match docs where this subject is either primary or secondary.
+        conditions.append(
+            f"EXISTS (SELECT 1 FROM document_subjects ds "
+            f"WHERE ds.document_id = d.id AND ds.subject_id = ${idx})"
+        )
+        params.append(uuid.UUID(subject_id))
     if q:
         idx += 1
         conditions.append(f"""
@@ -322,7 +391,10 @@ async def list_duplicate_flags():
             SELECT df.id, df.match_type, df.similarity_score, df.created_at,
                    d.id AS doc_id, d.title AS doc_title,
                    d.document_date AS doc_date, d.domain AS doc_domain,
-                   o.id AS dup_id, o.title AS dup_title, o.document_date AS dup_date
+                   d.file_size_bytes AS doc_size, d.mime_type AS doc_mime,
+                   o.id AS dup_id, o.title AS dup_title,
+                   o.document_date AS dup_date, o.domain AS dup_domain,
+                   o.file_size_bytes AS dup_size, o.mime_type AS dup_mime
             FROM duplicate_flags df
             JOIN documents d ON d.id = df.document_id     AND d.deleted_at IS NULL
             JOIN documents o ON o.id = df.duplicate_of_id AND o.deleted_at IS NULL
@@ -341,11 +413,16 @@ async def list_duplicate_flags():
                     "title": r["doc_title"],
                     "domain": r["doc_domain"],
                     "document_date": r["doc_date"].isoformat() if r["doc_date"] else None,
+                    "file_size_bytes": r["doc_size"],
+                    "mime_type": r["doc_mime"],
                 },
                 "duplicate_of": {
                     "id": str(r["dup_id"]),
                     "title": r["dup_title"],
+                    "domain": r["dup_domain"],
                     "document_date": r["dup_date"].isoformat() if r["dup_date"] else None,
+                    "file_size_bytes": r["dup_size"],
+                    "mime_type": r["dup_mime"],
                 },
             }
             for r in rows
@@ -408,6 +485,15 @@ async def get_document(document_id: str):
             ORDER BY df.similarity_score DESC
         """, did)
 
+        # All subjects this document is associated with (primary first).
+        subject_rows = await conn.fetch("""
+            SELECT s.id, s.name, s.type, ds.is_primary
+            FROM document_subjects ds
+            JOIN subjects s ON s.id = ds.subject_id AND s.deleted_at IS NULL
+            WHERE ds.document_id = $1
+            ORDER BY ds.is_primary DESC, s.name
+        """, did)
+
     return {
         "data": {
             "id": str(row["id"]),
@@ -440,6 +526,15 @@ async def get_document(document_id: str):
             "tags": list(row["tags"]) if row["tags"] else [],
             "subject_id": str(row["subject_id"]) if row["subject_id"] else None,
             "subject_name": row["subject_name"],
+            "subjects": [
+                {
+                    "id": str(s["id"]),
+                    "name": s["name"],
+                    "type": s["type"],
+                    "is_primary": s["is_primary"],
+                }
+                for s in subject_rows
+            ],
             "uploaded_by": row["uploaded_by"],
             "ingested_at": row["ingested_at"].isoformat() if row["ingested_at"] else None,
             "created_at": row["created_at"].isoformat(),
@@ -560,24 +655,34 @@ async def update_document(document_id: str, body: DocumentUpdate, request: Reque
         if not existing:
             raise HTTPException(404, "Document not found")
 
-        sid = uuid.UUID(body.subject_id) if body.subject_id else None
+        # Subject handling: subject_ids (multi) takes precedence. If only the
+        # legacy single subject_id was sent, treat it as a single-element list.
+        # Pass None to leave subjects untouched.
+        new_subject_ids: list[str] | None = None
+        if body.subject_ids is not None:
+            new_subject_ids = body.subject_ids
+        elif body.subject_id is not None:
+            new_subject_ids = [body.subject_id] if body.subject_id else []
+
         await conn.execute("""
             UPDATE documents SET
                 title = COALESCE($2, title),
                 domain = COALESCE($3, domain),
                 category = COALESCE($4, category),
-                subject_id = COALESCE($5, subject_id),
-                tags = COALESCE($6, tags),
-                review_status = COALESCE($7, review_status),
-                document_date = COALESCE($8, document_date),
-                expiration_date = COALESCE($9, expiration_date),
-                ai_summary = COALESCE($10, ai_summary),
-                ai_suggestion = CASE WHEN $11 THEN NULL ELSE ai_suggestion END,
-                notes = COALESCE($12, notes)
+                tags = COALESCE($5, tags),
+                review_status = COALESCE($6, review_status),
+                document_date = COALESCE($7, document_date),
+                expiration_date = COALESCE($8, expiration_date),
+                ai_summary = COALESCE($9, ai_summary),
+                ai_suggestion = CASE WHEN $10 THEN NULL ELSE ai_suggestion END,
+                notes = COALESCE($11, notes)
             WHERE id = $1
-        """, did, body.title, body.domain, body.category, sid, body.tags,
+        """, did, body.title, body.domain, body.category, body.tags,
              body.review_status, doc_date, exp_date, body.summary,
              bool(body.clear_suggestion), body.notes)
+
+        if new_subject_ids is not None:
+            await _set_document_subjects(conn, did, new_subject_ids)
 
     # When notes change, re-embed them so they're semantically searchable.
     # Keyword search picks them up automatically via the documents tsvector.
