@@ -65,6 +65,29 @@ def _doc_keys(extracted: dict) -> dict:
     }
 
 
+def is_vin_tail_mileage(mileage, vin) -> bool:
+    """True when an extracted mileage value is suspiciously identical to the
+    last 6 digits of a VIN. The AI conflates the two often enough (a 17-char
+    VIN ending in digits looks just like a 6-digit odometer reading on
+    receipts) that we strip the value when this matches and flag the doc
+    for review. Compares the numeric value, so leading zeros line up either
+    way."""
+    if mileage is None or vin is None:
+        return False
+    try:
+        m = int(mileage)
+    except (TypeError, ValueError):
+        return False
+    tail = _normalise_vin(vin)
+    if tail is None:
+        return False
+    last6 = tail[-6:]
+    # Only digits in the last 6 count — a VIN can have letters there.
+    if not last6.isdigit():
+        return False
+    return int(last6) == m
+
+
 def match_document_to_vehicle(
     doc_extracted: dict,
     vehicles: list[dict],

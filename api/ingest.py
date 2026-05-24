@@ -450,17 +450,19 @@ async def run_ai_analysis(
             except Exception as learn_err:
                 logger.warning(f"Sender mapping update failed for {doc_id}: {learn_err}")
 
-        # ── Vehicle linking (auto domain only, Phase 6) ───────────────
-        # If we just identified an auto doc with VIN or year+make+model in
-        # the extraction, attach it to the matching vehicle so it shows up
-        # on the per-vehicle Documents panel. Never raises.
+        # ── Vehicle linking + service-record extraction (auto, Phase 6/10) ─
+        # Auto docs that name a vehicle get linked to it. Service receipts
+        # additionally explode into one service_record per line item so the
+        # cost rollup and schedule's last_service_* update automatically.
         if apply_domain == "auto" and result.extracted_data:
             try:
-                from auto_linking import match_document_to_vehicle
+                from auto_linking import (
+                    is_vin_tail_mileage, match_document_to_vehicle,
+                )
                 pool = get_pool()
                 async with pool.acquire() as conn:
                     veh_rows = await conn.fetch(
-                        """SELECT id, data FROM structured_records
+                        """SELECT id, subject_id, data FROM structured_records
                            WHERE record_type = 'vehicle' AND deleted_at IS NULL
                              AND (data->>'status' IS NULL
                                   OR data->>'status' NOT IN
@@ -468,10 +470,14 @@ async def run_ai_analysis(
                     )
                     candidates = [
                         {"id": str(r["id"]),
+                         "subject_id": r["subject_id"],
                          "data": r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])}
                         for r in veh_rows
                     ]
                     match_id = match_document_to_vehicle(result.extracted_data, candidates)
+                    matched_vehicle = next(
+                        (v for v in candidates if v["id"] == match_id), None
+                    )
                     if match_id:
                         await conn.execute(
                             """UPDATE documents SET linked_record_id = $1
@@ -479,8 +485,94 @@ async def run_ai_analysis(
                             uuid.UUID(match_id), uuid.UUID(doc_id),
                         )
                         logger.info(f"Auto-linked doc {doc_id} to vehicle {match_id}")
+
+                    # VIN-tail mileage sanity check. The AI regularly confuses
+                    # the last 6 digits of the VIN with the odometer reading
+                    # on receipts. Flag the doc when this happens so the user
+                    # reviews it instead of trusting the bogus mileage.
+                    extracted_mileage = (
+                        result.extracted_data.get("mileage_in")
+                        or result.extracted_data.get("mileage")
+                        or result.extracted_data.get("odometer")
+                    )
+                    vehicle_vin = (matched_vehicle["data"].get("vin")
+                                   if matched_vehicle else None)
+                    mileage_suspect = is_vin_tail_mileage(extracted_mileage, vehicle_vin)
+                    if mileage_suspect:
+                        logger.warning(
+                            f"Doc {doc_id} extracted mileage {extracted_mileage} "
+                            f"matches VIN tail of {matched_vehicle['id']} — "
+                            "flagging for review, suppressing on derived records"
+                        )
+                        await conn.execute(
+                            "UPDATE documents SET review_status='needs_review' "
+                            "WHERE id=$1",
+                            uuid.UUID(doc_id),
+                        )
+
+                    # Receipt → service_record auto-creation. Idempotent on
+                    # doc id so re-runs (e.g. an AI re-analysis) don't double
+                    # up. Only fires when we have a vehicle + service_receipt
+                    # category + at least one service line item.
+                    services = result.extracted_data.get("services") or []
+                    if (match_id and apply_category == "service_receipt"
+                            and isinstance(services, list) and services):
+                        existing = await conn.fetchval(
+                            """SELECT COUNT(*) FROM structured_records
+                               WHERE record_type='service_record'
+                                 AND deleted_at IS NULL
+                                 AND data->>'document_id' = $1""",
+                            doc_id,
+                        )
+                        if existing == 0:
+                            from schemas import validate_record
+                            svc_date = doc_date.isoformat() if doc_date else None
+                            provider = (result.extracted_data.get("dealership")
+                                        or result.extracted_data.get("provider")
+                                        or result.extracted_data.get("shop"))
+                            mileage_for_record = (
+                                None if mileage_suspect else extracted_mileage
+                            )
+                            created = 0
+                            for svc in services:
+                                if not isinstance(svc, dict):
+                                    continue
+                                svc_type = (svc.get("description")
+                                            or svc.get("service_type"))
+                                cost = svc.get("total") or svc.get("cost")
+                                if not svc_type:
+                                    continue
+                                blob = {
+                                    "vehicle_record_id": match_id,
+                                    "service_type": svc_type,
+                                    "category": "preventive",
+                                }
+                                if svc_date:
+                                    blob["date"] = svc_date
+                                if mileage_for_record is not None:
+                                    blob["mileage"] = mileage_for_record
+                                if provider:
+                                    blob["provider"] = provider
+                                if cost is not None:
+                                    blob["cost"] = cost
+                                blob["document_id"] = doc_id
+                                cleaned = validate_record("service_record", blob)
+                                await conn.execute(
+                                    """INSERT INTO structured_records
+                                           (record_type, domain, subject_id,
+                                            data, source_document_id)
+                                       VALUES ('service_record', 'auto', $1, $2, $3)""",
+                                    matched_vehicle["subject_id"]
+                                    if matched_vehicle else None,
+                                    cleaned, uuid.UUID(doc_id),
+                                )
+                                created += 1
+                            logger.info(
+                                f"Doc {doc_id}: created {created} service_record(s) "
+                                f"from receipt extraction"
+                            )
             except Exception as link_err:
-                logger.warning(f"Vehicle linking failed for {doc_id}: {link_err}")
+                logger.warning(f"Vehicle linking/extraction failed for {doc_id}: {link_err}")
 
         # ── Duplicate detection ───────────────────────────────────────
         # Runs here (not at ingest time) so document_date is known and the

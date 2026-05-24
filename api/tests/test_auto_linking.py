@@ -17,7 +17,8 @@ import urllib.request
 import pytest
 
 from auto_linking import (
-    _normalise_vin, _doc_keys, _vehicle_keys, match_document_to_vehicle,
+    _normalise_vin, _doc_keys, _vehicle_keys,
+    is_vin_tail_mileage, match_document_to_vehicle,
 )
 
 
@@ -122,6 +123,51 @@ def test_match_skips_year_make_model_when_any_field_missing():
     even if a single vehicle happens to be the same year/make."""
     extracted = {"vehicle_year": 2022, "vehicle_make": "Toyota"}
     assert match_document_to_vehicle(extracted, [_SIENNA]) is None
+
+
+# ─── is_vin_tail_mileage (pure) ─────────────────────────────────────────
+
+
+def test_vin_tail_mileage_flags_exact_match():
+    """The real-world failure: AI extracted mileage=129572 from a Sienna
+    receipt whose VIN ended in ...129572. Must be flagged."""
+    assert is_vin_tail_mileage(129572, "5TDJRKEC1NS129572") is True
+
+
+def test_vin_tail_mileage_flags_lowercase_vin():
+    """Normalisation kicks in — lowercase VIN still matches."""
+    assert is_vin_tail_mileage(129572, "5tdjrkec1ns129572") is True
+
+
+def test_vin_tail_mileage_safe_when_tail_has_letters():
+    """If the last 6 of a VIN aren't all digits, the comparison can't
+    spuriously match an integer mileage."""
+    assert is_vin_tail_mileage(129572, "5TDJRKEC1NABC123") is False
+
+
+def test_vin_tail_mileage_safe_for_different_mileage():
+    assert is_vin_tail_mileage(45000, "5TDJRKEC1NS129572") is False
+
+
+def test_vin_tail_mileage_accepts_string_mileage():
+    """AI extractions sometimes return mileage as a string."""
+    assert is_vin_tail_mileage("129572", "5TDJRKEC1NS129572") is True
+
+
+def test_vin_tail_mileage_returns_false_on_missing_inputs():
+    assert is_vin_tail_mileage(None, "5TDJRKEC1NS129572") is False
+    assert is_vin_tail_mileage(129572, None) is False
+    assert is_vin_tail_mileage(None, None) is False
+
+
+def test_vin_tail_mileage_returns_false_on_non_numeric_mileage():
+    """Non-numeric mileage strings ("twelve thousand") shouldn't crash."""
+    assert is_vin_tail_mileage("twelve thousand", "5TDJRKEC1NS129572") is False
+
+
+def test_vin_tail_mileage_safe_when_vin_too_short():
+    """Malformed VINs (not 17 chars) get normalised to None."""
+    assert is_vin_tail_mileage(123, "ABC123") is False
 
 
 def test_match_ignores_invalid_vin_and_uses_fallback():
