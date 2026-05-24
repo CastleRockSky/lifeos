@@ -38,8 +38,13 @@ def _safe_remove(path: str):
         pass
 
 
-def _preprocess_pdf_with_ocrmypdf(file_path: str) -> tuple[str, str | None]:
+def _preprocess_pdf_with_ocrmypdf(file_path: str, *, force: bool = False) -> tuple[str, str | None]:
     """Run ocrmypdf to deskew, auto-rotate, and add text layer.
+
+    ``force=True`` re-rasterises every page and OCRs from scratch — needed
+    when an upstream PDF (e.g. mobile capture) has a synthetic text layer of
+    positioned glyphs that pdfplumber can technically extract but produces
+    garbage. Default (skip-text) is fast for real PDFs.
 
     Returns (processed_pdf_path, sidecar_text_path) or (original_path, None).
     """
@@ -48,11 +53,13 @@ def _preprocess_pdf_with_ocrmypdf(file_path: str) -> tuple[str, str | None]:
     fd2, sidecar_path = tempfile.mkstemp(suffix=".txt")
     os.close(fd2)
 
+    text_handling = "--force-ocr" if force else "--skip-text"
+
     try:
         proc = subprocess.Popen(
             [
                 "ocrmypdf",
-                "--skip-text",
+                text_handling,
                 "--deskew",
                 "--rotate-pages",
                 "--rotate-pages-threshold", "2",
@@ -98,6 +105,23 @@ def _preprocess_pdf_with_ocrmypdf(file_path: str) -> tuple[str, str | None]:
         _safe_remove(output_path)
         _safe_remove(sidecar_path)
         return file_path, None
+
+
+def _looks_garbled(text: str) -> bool:
+    """True when extracted PDF text looks like positioned-glyph garbage —
+    almost every line is 1-2 characters because the upstream PDF was
+    constructed from per-glyph drawing ops rather than real text runs
+    (mobile capture PDFs do this, scanned PDFs sometimes do too).
+
+    Conservative: requires both a meaningful line count AND a high ratio
+    of micro-lines, so short legitimate texts (a printed PIN, a receipt
+    sliver) don't trigger an expensive force-OCR.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 10:
+        return False
+    micro_lines = sum(1 for line in lines if len(line) <= 2)
+    return micro_lines / len(lines) > 0.40
 
 
 def _auto_orient_image(file_path: str):
@@ -237,6 +261,8 @@ def extract_text_with_metadata(file_path: str, mime_type: str = None) -> dict:
         import pdfplumber
 
         processed, sidecar = _preprocess_pdf_with_ocrmypdf(file_path)
+        forced_processed: str | None = None
+        forced_sidecar: str | None = None
         try:
             text_pages = []
             page_count = 0
@@ -250,13 +276,40 @@ def extract_text_with_metadata(file_path: str, mime_type: str = None) -> dict:
             except Exception as e:
                 logger.warning(f"pdfplumber failed on {file_path}: {e}")
 
-            if text_pages and sum(len(p) for p in text_pages) > 50:
+            combined = '\n\n'.join(text_pages) if text_pages else ''
+            if combined and len(combined) > 50 and not _looks_garbled(combined):
                 return {
-                    "text": _sanitize_text('\n\n'.join(text_pages)),
+                    "text": _sanitize_text(combined),
                     "ocr_applied": False,
                     "ocr_confidence": None,
                     "page_count": page_count,
                 }
+
+            # Garbled positioned-glyph output (common with mobile-capture
+            # PDFs wrapping a single rotated photo). Re-run ocrmypdf with
+            # --force-ocr so the rasteriser + tesseract produce clean text.
+            if combined and _looks_garbled(combined):
+                logger.info(
+                    f"{file_path}: pdfplumber extracted garbled text "
+                    f"({len(combined)} chars, mostly micro-lines) — "
+                    "re-running with --force-ocr"
+                )
+                forced_processed, forced_sidecar = _preprocess_pdf_with_ocrmypdf(
+                    file_path, force=True,
+                )
+                if forced_sidecar:
+                    try:
+                        with open(forced_sidecar, "r", errors="replace") as f:
+                            forced_text = f.read().strip()
+                        if len(forced_text) > 50:
+                            return {
+                                "text": _sanitize_text(forced_text),
+                                "ocr_applied": True,
+                                "ocr_confidence": None,
+                                "page_count": page_count or None,
+                            }
+                    except OSError:
+                        pass
 
             # Use sidecar text
             if sidecar:
@@ -286,6 +339,10 @@ def extract_text_with_metadata(file_path: str, mime_type: str = None) -> dict:
                 _safe_remove(processed)
             if sidecar:
                 _safe_remove(sidecar)
+            if forced_processed and forced_processed != file_path:
+                _safe_remove(forced_processed)
+            if forced_sidecar:
+                _safe_remove(forced_sidecar)
 
     # Images
     image_mimes = {
