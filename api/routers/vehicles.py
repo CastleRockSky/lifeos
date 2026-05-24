@@ -510,6 +510,16 @@ async def apply_template(vehicle_id: str, body: ApplyTemplate, request: Request)
             wanted_set = set(wanted)
             entries = [e for e in entries if e.get("service_type") in wanted_set]
 
+        # Seed last_service_* to "right now" so each schedule has a baseline
+        # the recompute can project from. Without this, next_due_* stays null
+        # and nothing in the schedule / timeline / action engine works until
+        # the user edits every entry by hand. Conservative side-effect: no
+        # alerts fire at apply time (first interval starts fresh).
+        vdata = vehicle["data"] if isinstance(vehicle["data"], dict) else json.loads(vehicle["data"])
+        current_mileage = vdata.get("current_mileage")
+        today = date.today()
+        today_iso = today.isoformat()
+
         created: list[str] = []
         skipped: list[str] = []
         for entry in entries:
@@ -520,6 +530,10 @@ async def apply_template(vehicle_id: str, body: ApplyTemplate, request: Request)
                 skipped.append(svc)
                 continue
             data = {**entry, "vehicle_record_id": str(vid)}
+            if entry.get("interval_miles") and current_mileage is not None:
+                data.setdefault("last_service_mileage", current_mileage)
+            if entry.get("interval_months"):
+                data.setdefault("last_service_date", today_iso)
             cleaned = validate_record("maintenance_schedule", data)
             row = await conn.fetchrow(
                 """INSERT INTO structured_records
@@ -531,12 +545,11 @@ async def apply_template(vehicle_id: str, body: ApplyTemplate, request: Request)
             )
             created.append(str(row["id"]))
 
-        # Recompute any newly-due schedules (gives us action items for items
-        # whose interval has already passed based on current mileage / today).
-        current_mileage = (vehicle["data"] if isinstance(vehicle["data"], dict)
-                           else json.loads(vehicle["data"])).get("current_mileage")
+        # Recompute populates next_due_mileage, next_due_date, and
+        # predicted_due_date so the timeline + action-item engine have data
+        # immediately rather than waiting for the next mileage log.
         if current_mileage is not None:
-            await _recompute_schedules(conn, vid, current_mileage, date.today())
+            await _recompute_schedules(conn, vid, current_mileage, today)
 
     await audit_log(
         "apply_template", get_user_email(request), "structured_records",
@@ -616,6 +629,21 @@ def _predicted_due_iso(
     return (today + timedelta(days=days_to_go)).isoformat()
 
 
+def _add_months(d: date, months: int) -> date:
+    """Add `months` calendar months to `d`, clamping the day to the target
+    month's length so Jan 31 + 1 month → Feb 28/29, not an error."""
+    year = d.year + (d.month - 1 + months) // 12
+    month = (d.month - 1 + months) % 12 + 1
+    # Days in the target month — Feb is special, the rest are well-known.
+    if month == 2:
+        last = 29 if (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) else 28
+    elif month in (4, 6, 9, 11):
+        last = 30
+    else:
+        last = 31
+    return date(year, month, min(d.day, last))
+
+
 async def _recompute_schedules(conn, vehicle_id: uuid.UUID, current_mileage: int, update_date: date):
     """Shared logic used by mileage-log and template-apply.
 
@@ -657,6 +685,23 @@ async def _recompute_schedules(conn, vehicle_id: uuid.UUID, current_mileage: int
             if sdata.get("next_due_mileage") != new_next_mileage:
                 sdata["next_due_mileage"] = new_next_mileage
                 recomputed = True
+
+        # Date-based next_due. last_service_date + interval_months is the
+        # source of truth for the timeline's solid markers; without this the
+        # schedule keeps next_due_date null forever and only projection
+        # markers ever render.
+        interval_months = sdata.get("interval_months")
+        last_service_date_raw = sdata.get("last_service_date")
+        if isinstance(interval_months, int) and last_service_date_raw:
+            try:
+                lsd = (last_service_date_raw if isinstance(last_service_date_raw, date)
+                       else date.fromisoformat(last_service_date_raw))
+                new_next_date = _add_months(lsd, interval_months).isoformat()
+                if sdata.get("next_due_date") != new_next_date:
+                    sdata["next_due_date"] = new_next_date
+                    recomputed = True
+            except (TypeError, ValueError):
+                pass
 
         # Predicted ETA: when will current_mileage hit next_due_mileage?
         ndm = sdata.get("next_due_mileage")

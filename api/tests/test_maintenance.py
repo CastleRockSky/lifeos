@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from data.maintenance_templates import (
     TEMPLATES, get_template, list_templates_summary,
 )
-from routers.vehicles import _mpd_from_metrics, _predicted_due_iso
+from routers.vehicles import _add_months, _mpd_from_metrics, _predicted_due_iso
 from schemas import validate_record
 
 
@@ -189,6 +189,27 @@ def test_predicted_due_iso_returns_none_when_inputs_missing(ndm, cur, mpd):
     assert _predicted_due_iso(cur, ndm, mpd, date.today()) is None
 
 
+# ─── _add_months helper (pure) ──────────────────────────────────────────
+
+
+def test_add_months_basic():
+    assert _add_months(date(2026, 5, 23), 12) == date(2027, 5, 23)
+    assert _add_months(date(2026, 5, 23), 6) == date(2026, 11, 23)
+
+
+def test_add_months_rolls_year():
+    assert _add_months(date(2026, 11, 15), 3) == date(2027, 2, 15)
+    assert _add_months(date(2026, 12, 1), 13) == date(2028, 1, 1)
+
+
+def test_add_months_clamps_to_short_month():
+    # Jan 31 + 1 month → Feb 28/29, not error.
+    assert _add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
+    assert _add_months(date(2024, 1, 31), 1) == date(2024, 2, 29)  # leap
+    # May 31 + 1 → June 30.
+    assert _add_months(date(2026, 5, 31), 1) == date(2026, 6, 30)
+
+
 # ─── Schedule validation contract (pure) ────────────────────────────────
 
 
@@ -309,6 +330,31 @@ class TestMaintenanceAPI:
         assert body2["data"]["created"] == []
         assert len(body2["data"]["skipped"]) == len(TEMPLATES["minimal"]["schedules"])
 
+    def test_apply_template_seeds_baselines_so_next_due_populates(self, vehicle_id):
+        """Each applied entry needs a last_service_* baseline or the
+        recompute can't produce next_due_* / predicted_due_date — leaving
+        the timeline empty and the action-item engine inert."""
+        path = f"/api/vehicles/{vehicle_id}/schedules/apply-template"
+        status, body = _request("POST", path, {"template_key": "minimal"})
+        assert status == 200
+        # Read back the schedules and confirm both fields landed.
+        status, recs = _request("GET",
+            f"/api/records?record_type=maintenance_schedule&per_page=50")
+        applied = [r for r in recs["data"] if r["data"].get("vehicle_record_id") == vehicle_id]
+        assert applied, "expected schedules from minimal template"
+        for r in applied:
+            d = r["data"]
+            if d.get("interval_miles"):
+                assert d.get("last_service_mileage") is not None, \
+                    f"{d['service_type']} miles-interval needs last_service_mileage"
+                assert d.get("next_due_mileage") is not None, \
+                    f"{d['service_type']} should have next_due_mileage after recompute"
+            if d.get("interval_months"):
+                assert d.get("last_service_date") is not None, \
+                    f"{d['service_type']} months-interval needs last_service_date"
+                assert d.get("next_due_date") is not None, \
+                    f"{d['service_type']} should have next_due_date after recompute"
+
     def test_apply_template_can_duplicate_when_requested(self, vehicle_id):
         path = f"/api/vehicles/{vehicle_id}/schedules/apply-template"
         _request("POST", path, {"template_key": "minimal"})
@@ -351,6 +397,26 @@ class TestMaintenanceAPI:
         })
         assert status == 400
         assert "interval" in (body.get("detail") or body.get("message") or "").lower()
+
+    def test_create_schedule_recomputes_next_due_date(self, vehicle_id):
+        # Date-based schedule with last_service_date set — next_due_date must
+        # be populated so the timeline's date markers can render.
+        status, body = _request("POST", "/api/maintenance-schedules", {
+            "vehicle_record_id": vehicle_id,
+            "service_type": "Registration renewal",
+            "interval_months": 12,
+            "last_service_date": "2025-06-15",
+        })
+        assert status in (200, 201), body
+        sid = body["data"]["id"]
+
+        # Touch the vehicle to trigger _recompute_schedules (the create itself
+        # doesn't recompute date fields when current_mileage isn't set).
+        _request("POST", f"/api/vehicles/{vehicle_id}/mileage", {"mileage": 50050})
+
+        status, body = _request("GET", f"/api/records/{sid}")
+        assert status == 200
+        assert body["data"]["data"]["next_due_date"] == "2026-06-15"
 
     def test_edit_schedule_recomputes_next_due_mileage(self, vehicle_id):
         # Create a schedule with last_service_mileage set, then update it.
