@@ -2,6 +2,7 @@
 routers/actions.py — Action items CRUD.
 """
 
+import json
 import uuid
 from datetime import date, timedelta, datetime, timezone
 
@@ -272,6 +273,12 @@ async def _sync_calendar_for_action(action_id: str, op: str):
 
 
 def _action_dict(r) -> dict:
+    metadata = r["metadata"] if "metadata" in r.keys() else None
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except (TypeError, ValueError):
+            metadata = None
     return {
         "id": str(r["id"]),
         "title": r["title"],
@@ -284,8 +291,10 @@ def _action_dict(r) -> dict:
         "priority": r["priority"],
         "source_type": r["source_type"],
         "source_document_id": str(r["source_document_id"]) if r["source_document_id"] else None,
+        "source_record_id": str(r["source_record_id"]) if r["source_record_id"] else None,
         "document_title": r.get("document_title"),
         "created_at": r["created_at"].isoformat(),
         "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
         "is_overdue": r["due_date"] is not None and r["due_date"] < date.today() and r["status"] not in ("completed", "dismissed"),
+        "metadata": metadata or {},
     }

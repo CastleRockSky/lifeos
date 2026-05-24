@@ -241,6 +241,23 @@
         .modal-lg { max-width: 720px; }
         .modal h3 { font-size: 1rem; margin-bottom: 1rem; }
 
+        /* ── Expanded PDF viewer ────────────────────────── */
+        .pdf-overlay {
+            position: fixed; inset: 0; background: var(--bg);
+            z-index: 300; display: flex; flex-direction: column;
+        }
+        .pdf-overlay-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem; padding: 0.6rem 1rem;
+            background: var(--surface); border-bottom: 1px solid var(--border);
+        }
+        .pdf-overlay-title {
+            font-size: 0.9rem; font-weight: 600;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .pdf-overlay iframe { flex: 1; width: 100%; border: 0; }
+        .pdf-expand-btn { position: absolute; top: 0.5rem; right: 0.5rem; }
+
         .form-group { margin-bottom: 1rem; }
         .form-group label {
             display: block; font-size: 0.75rem; font-weight: 500;
@@ -469,6 +486,8 @@
         </div>
 
         <div class="header-actions">
+            <a class="btn" href="/capture/" title="Mobile camera (multi-page scanner)"
+               style="text-decoration:none;">📷 Capture</a>
             <button class="btn btn-primary" @click="showUpload = true">Upload</button>
         </div>
     </header>
@@ -620,7 +639,7 @@
                                     </div>
                                 </div>
                                 <div class="action-item-actions">
-                                    <button class="btn btn-xs" @click.stop="acknowledgeExpiration(exp.id)">Clear</button>
+                                    <button class="btn btn-xs" @click.stop="acknowledgeExpiration(exp.id)">Dismiss</button>
                                 </div>
                             </div>
                         </template>
@@ -921,9 +940,10 @@
                     <div class="detail-grid">
                         <div>
                             <!-- File preview -->
-                            <div x-show="currentDoc?.mime_type === 'application/pdf'" style="margin-bottom:1rem;">
+                            <div x-show="currentDoc?.mime_type === 'application/pdf'" style="margin-bottom:1rem; position:relative;">
                                 <iframe :src="'/api/documents/' + currentDoc?.id + '/file'"
-                                        style="width:100%; height:500px; border:1px solid var(--border); border-radius:var(--radius);"></iframe>
+                                        style="width:100%; height:500px; border:1px solid var(--border); border-radius:var(--radius); display:block;"></iframe>
+                                <button class="btn btn-sm pdf-expand-btn" @click="openPdfExpanded()" title="Expand to full window">⤢ Expand</button>
                             </div>
                             <div x-show="currentDoc?.mime_type?.startsWith('image/')" style="margin-bottom:1rem;">
                                 <img :src="'/api/documents/' + currentDoc?.id + '/file'"
@@ -1001,8 +1021,19 @@
                                     <span x-text="currentDoc?.category?.replace(/_/g, ' ') || '--'"></span>
                                 </div>
                                 <div class="detail-meta-row">
-                                    <span class="label">Subject</span>
-                                    <span x-text="currentDoc?.subject_name || '--'"></span>
+                                    <span class="label">Subjects</span>
+                                    <span>
+                                        <template x-if="(currentDoc?.subjects || []).length === 0">
+                                            <span style="color:var(--text-faint);">--</span>
+                                        </template>
+                                        <span style="display:inline-flex; flex-wrap:wrap; gap:0.3rem;">
+                                            <template x-for="s in (currentDoc?.subjects || [])" :key="s.id">
+                                                <span class="badge"
+                                                      :style="s.is_primary ? 'background:var(--primary); color:#fff;' : ''"
+                                                      x-text="(s.is_primary ? '★ ' : '') + s.name"></span>
+                                            </template>
+                                        </span>
+                                    </span>
                                 </div>
                                 <div class="detail-meta-row">
                                     <span class="label">File</span>
@@ -1281,24 +1312,49 @@
                 </p>
 
                 <template x-for="dup in duplicates" :key="dup.id">
-                    <div class="action-item">
-                        <div class="action-item-content">
-                            <div class="action-item-title">
-                                <span class="qa-source-link" style="cursor:pointer;"
-                                      @click="viewDocument(dup.document.id)" x-text="dup.document.title"></span>
-                            </div>
-                            <div class="action-item-meta">
-                                <span class="badge"
-                                      x-text="dup.match_type === 'exact' ? 'identical file' : (dup.similarity_score * 100).toFixed(0) + '% match'"></span>
-                                <span>duplicate of</span>
-                                <span class="qa-source-link" style="cursor:pointer;"
-                                      @click="viewDocument(dup.duplicate_of.id)" x-text="dup.duplicate_of.title"></span>
-                                <span class="badge" :class="'badge-' + dup.document.domain"
-                                      x-show="dup.document.domain" x-text="dup.document.domain"></span>
-                            </div>
-                        </div>
-                        <div class="action-item-actions">
+                    <div class="action-item" style="flex-direction:column; align-items:stretch; padding:1rem; gap:0.75rem;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+                            <span class="badge"
+                                  x-text="dup.match_type === 'exact' ? 'identical file' : (dup.similarity_score * 100).toFixed(0) + '% match'"></span>
                             <button class="btn btn-xs" @click="dismissDuplicateRow(dup.id)">Not a duplicate</button>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                            <template x-for="side in [{key:'document', label:'Newer upload', other:'duplicate_of'},
+                                                      {key:'duplicate_of', label:'Original', other:'document'}]"
+                                      :key="side.key">
+                                <div style="display:flex; flex-direction:column; gap:0.5rem;
+                                            border:1px solid var(--border); border-radius:var(--radius); padding:0.6rem;">
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;"
+                                         x-text="side.label"></div>
+                                    <div style="display:flex; gap:0.6rem; min-width:0;">
+                                        <img :src="'/api/documents/' + dup[side.key].id + '/thumbnail'"
+                                             alt=""
+                                             style="width:72px; height:96px; object-fit:cover; border-radius:4px;
+                                                    border:1px solid var(--border); flex-shrink:0; background:var(--bg);"
+                                             @error="$el.style.visibility='hidden'">
+                                        <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:0.25rem;">
+                                            <div class="qa-source-link"
+                                                 style="cursor:pointer; font-size:0.85rem; font-weight:500;
+                                                        overflow:hidden; text-overflow:ellipsis; display:-webkit-box;
+                                                        -webkit-line-clamp:2; -webkit-box-orient:vertical;"
+                                                 @click="viewDocument(dup[side.key].id)"
+                                                 x-text="dup[side.key].title"></div>
+                                            <div class="action-item-meta" style="margin-top:0;">
+                                                <span x-show="dup[side.key].document_date"
+                                                      x-text="formatDate(dup[side.key].document_date)"></span>
+                                                <span x-text="formatBytes(dup[side.key].file_size_bytes || 0)"></span>
+                                                <span class="badge" :class="'badge-' + dup[side.key].domain"
+                                                      x-show="dup[side.key].domain"
+                                                      x-text="dup[side.key].domain"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-xs btn-success"
+                                            @click="keepDuplicateSide(dup, side.key, side.other)">
+                                        Keep this · delete other
+                                    </button>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </template>
@@ -1603,7 +1659,10 @@
         <!-- Auto Dashboard -->
         <template x-if="view === 'auto'">
             <div>
-                <div class="page-header"><h2>Auto</h2></div>
+                <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                    <h2>Auto</h2>
+                    <button class="btn btn-primary btn-sm" @click="openAddVehicle()">+ Add vehicle</button>
+                </div>
 
                 <template x-if="(auto?.vehicles || []).length === 0">
                     <div class="empty-state" style="padding:1rem;">
@@ -1614,7 +1673,10 @@
                 </template>
 
                 <template x-for="v in (auto?.vehicles || [])" :key="v.id">
-                    <div class="action-item" style="display:block;">
+                    <div class="action-item" style="display:block; cursor:pointer;"
+                         @click="viewVehicle(v.id)"
+                         onmouseover="this.style.background='var(--surface-hover)'"
+                         onmouseout="this.style.background=''">
                         <div style="display:flex; align-items:start; gap:0.75rem;">
                             <div style="flex:1;">
                                 <div class="action-item-title">
@@ -1632,7 +1694,7 @@
                                           x-text="' · reg expires ' + v.data.registration_expiration"></span>
                                 </div>
                             </div>
-                            <div style="display:flex; gap:0.4rem; align-items:center;">
+                            <div style="display:flex; gap:0.4rem; align-items:center;" @click.stop>
                                 <input type="number" x-model.number="v._mileageInput"
                                        :placeholder="'New mi (last: ' + (v.data?.current_mileage || '?') + ')'"
                                        style="width:140px; font-size:0.85rem;">
@@ -1693,6 +1755,220 @@
                 </div>
 
                 <div class="loading" x-show="loading">Loading...</div>
+            </div>
+        </template>
+
+        <!-- Per-Vehicle Drill-In (Auto Phase 1) -->
+        <template x-if="view === 'auto-vehicle'">
+            <div>
+                <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                    <button class="btn btn-sm" @click="navigate(prevView || 'auto')">← Back</button>
+                    <h2 x-text="currentVehicle?.data
+                        ? [currentVehicle.data.year, currentVehicle.data.make, currentVehicle.data.model].filter(Boolean).join(' ')
+                        : 'Vehicle'"></h2>
+                    <div style="margin-left:auto; display:flex; gap:0.4rem;" x-show="currentVehicle?.data">
+                        <button class="btn btn-sm" @click="openEditVehicle()">Edit</button>
+                        <button class="btn btn-sm" @click="openStatusChange()">Status</button>
+                        <button class="btn btn-sm" @click="openMerge()">Merge…</button>
+                    </div>
+                </div>
+
+                <template x-if="currentVehicle?.notFound">
+                    <div class="empty-state" style="padding:2rem;">
+                        <p>Vehicle not found.</p>
+                        <button class="btn" @click="navigate('auto')">Back to fleet</button>
+                    </div>
+                </template>
+
+                <template x-if="currentVehicle?.data">
+                    <div>
+                        <!-- Hero strip -->
+                        <div class="action-item" style="display:block; padding:1rem 1.25rem;">
+                            <div style="display:flex; align-items:flex-start; gap:1.5rem; flex-wrap:wrap;">
+                                <!-- Left: identity -->
+                                <div style="flex:1; min-width:240px;">
+                                    <div style="font-size:1.3rem; font-weight:600;">
+                                        <span x-text="[currentVehicle.data.year, currentVehicle.data.make, currentVehicle.data.model].filter(Boolean).join(' ')"></span>
+                                        <span x-show="currentVehicle.data.trim" style="color:var(--text-muted); font-weight:normal; font-size:1.1rem;"
+                                              x-text="' ' + currentVehicle.data.trim"></span>
+                                    </div>
+                                    <div class="action-item-meta" style="margin-top:0.35rem;">
+                                        <span x-show="currentVehicle.data.license_plate" x-text="currentVehicle.data.license_plate"></span>
+                                        <span x-show="currentVehicle.data.color" x-text="' · ' + currentVehicle.data.color"></span>
+                                        <span class="badge"
+                                              :style="(currentVehicle.data.status || 'active') === 'active'
+                                                ? '' : 'background:var(--text-muted); color:#fff;'"
+                                              x-text="currentVehicle.data.status || 'active'"></span>
+                                    </div>
+                                </div>
+                                <!-- Right: mileage block -->
+                                <div style="text-align:right; min-width:200px;">
+                                    <div style="font-size:1.3rem; font-weight:600;"
+                                         x-text="currentVehicle.data.current_mileage != null
+                                            ? currentVehicle.data.current_mileage.toLocaleString() + ' mi'
+                                            : 'No mileage'"></div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted);"
+                                         x-show="currentVehicle.data.mileage_updated"
+                                         x-text="'Updated ' + formatDaysAgo(currentVehicle.data.mileage_updated)"></div>
+                                    <div style="display:flex; gap:0.4rem; margin-top:0.5rem; justify-content:flex-end;">
+                                        <input type="number" x-model.number="vehicleMileageInput"
+                                               :placeholder="'New mi'"
+                                               style="width:120px; font-size:0.85rem;">
+                                        <button class="btn btn-xs btn-primary" @click="logVehicleMileage()">Log</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Next up callout -->
+                            <template x-if="vehicleNextUp(currentVehicle)">
+                                <div style="margin-top:0.85rem; padding:0.6rem 0.85rem; border-radius:var(--radius); font-size:0.85rem;"
+                                     :style="{
+                                        red:    'background:rgba(239,68,68,0.12); color:var(--danger); border:1px solid rgba(239,68,68,0.3);',
+                                        yellow: 'background:rgba(245,158,11,0.12); color:var(--warning); border:1px solid rgba(245,158,11,0.3);',
+                                        green:  'background:rgba(16,185,129,0.12); color:var(--success); border:1px solid rgba(16,185,129,0.3);',
+                                     }[vehicleNextUp(currentVehicle).level]">
+                                    <strong>Next up:</strong>
+                                    <span x-text="vehicleNextUp(currentVehicle).text"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Overview key/value grid -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header"><h2>Overview</h2></div>
+                            <div class="action-item" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.75rem 1.5rem; padding:1rem 1.25rem;">
+                                <div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">VIN</div>
+                                    <div style="font-family:monospace; font-size:0.9rem;"
+                                         :style="currentVehicle.data.vin ? '' : 'color:var(--text-faint);'"
+                                         x-text="currentVehicle.data.vin || '—'"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Purchase</div>
+                                    <div :style="currentVehicle.data.purchase_date || currentVehicle.data.purchase_price ? '' : 'color:var(--text-faint);'"
+                                         x-text="(currentVehicle.data.purchase_date || '—')
+                                             + (currentVehicle.data.purchase_price != null
+                                                ? ' · $' + Number(currentVehicle.data.purchase_price).toLocaleString()
+                                                : '')"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Registration expires</div>
+                                    <div :style="currentVehicle.data.registration_expiration ? '' : 'color:var(--text-faint);'"
+                                         :class="{ 'badge-priority-high': isExpirationSoon(currentVehicle.data.registration_expiration, 60) }"
+                                         x-text="currentVehicle.data.registration_expiration || '—'"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Mileage last updated</div>
+                                    <div :style="currentVehicle.data.mileage_updated ? '' : 'color:var(--text-faint);'"
+                                         x-text="currentVehicle.data.mileage_updated
+                                            ? currentVehicle.data.mileage_updated + ' (' + formatDaysAgo(currentVehicle.data.mileage_updated) + ')'
+                                            : '—'"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Insurance policy</div>
+                                    <div :style="currentVehicle.data.insurance_policy_id ? '' : 'color:var(--text-faint);'"
+                                         x-text="currentVehicle.data.insurance_policy_id || '—'"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Loan record</div>
+                                    <div :style="currentVehicle.data.loan_record_id ? '' : 'color:var(--text-faint);'"
+                                         x-text="currentVehicle.data.loan_record_id || '—'"></div>
+                                </div>
+                                <div style="grid-column:1 / -1;" x-show="currentVehicle.data.notes">
+                                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Notes</div>
+                                    <div style="white-space:pre-wrap;" x-text="currentVehicle.data.notes"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Maintenance schedules (Phase 3) -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                                <h2>Maintenance schedules</h2>
+                                <button class="btn btn-sm btn-primary" @click="openScheduleForm()">+ Add</button>
+                                <button class="btn btn-sm" @click="openTemplatePicker()">Templates…</button>
+                            </div>
+
+                            <!-- Timeline strip (next 6 months) -->
+                            <template x-if="(currentVehicle._schedules || []).length > 0">
+                                <div class="action-item" style="display:block; padding:0.75rem 1.25rem;">
+                                    <div style="position:relative; height:54px;" x-html="renderScheduleTimeline(currentVehicle._schedules)"></div>
+                                </div>
+                            </template>
+
+                            <!-- Empty state -->
+                            <template x-if="(currentVehicle._schedules || []).length === 0">
+                                <div class="action-item" style="display:block; padding:1.25rem;">
+                                    <div style="font-size:0.9rem; margin-bottom:0.5rem;">No maintenance schedules yet for this vehicle.</div>
+                                    <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.75rem;">
+                                        Schedules drive the action-item alerts when something's due.
+                                    </div>
+                                    <div style="display:flex; gap:0.5rem;">
+                                        <button class="btn btn-primary btn-sm" @click="openTemplatePicker()">Add typical schedules</button>
+                                        <button class="btn btn-sm" @click="openScheduleForm()">Add a single schedule</button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Schedule rows -->
+                            <template x-for="s in (currentVehicle._schedules || [])" :key="s.id">
+                                <div class="action-item" style="display:block;">
+                                    <div style="display:flex; align-items:start; gap:0.75rem;">
+                                        <div style="flex:1;">
+                                            <div class="action-item-title" x-text="s.data?.service_type || 'Service'"></div>
+                                            <div class="action-item-meta">
+                                                <span x-text="scheduleIntervalLabel(s.data)"></span>
+                                                <span x-show="s.data?.last_service_date || s.data?.last_service_mileage"
+                                                      x-text="' · last: ' + [s.data?.last_service_date,
+                                                              s.data?.last_service_mileage != null
+                                                                ? s.data.last_service_mileage.toLocaleString() + ' mi'
+                                                                : null].filter(Boolean).join(' @ ')"></span>
+                                                <span x-show="s.data?.estimated_cost != null"
+                                                      x-text="' · ~$' + s.data.estimated_cost"></span>
+                                            </div>
+                                            <div class="action-item-meta" x-show="s.data?.next_due_date || s.data?.next_due_mileage">
+                                                <strong>Next due:</strong>
+                                                <span x-show="s.data?.next_due_mileage"
+                                                      x-text="s.data.next_due_mileage.toLocaleString() + ' mi'"></span>
+                                                <span x-show="s.data?.next_due_date"
+                                                      x-text="' · ' + s.data.next_due_date"></span>
+                                                <span x-show="s.data?.predicted_due_date"
+                                                      style="color:var(--text-muted);"
+                                                      x-text="' (≈ ' + formatShortDate(s.data.predicted_due_date) + ')'"></span>
+                                            </div>
+                                        </div>
+                                        <div class="action-item-actions">
+                                            <button class="btn btn-xs" @click="openScheduleForm(s)">Edit</button>
+                                            <button class="btn btn-xs btn-danger" @click="deleteSchedule(s.id)">Delete</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Skeleton sections (remaining phases) -->
+                        <template x-for="section in [
+                            { title: 'Service history',       phase: 'Phase 4', blurb: 'Per-vehicle history, manual logging, cost rollups, $/mile.' },
+                            { title: 'Documents',             phase: 'Phase 6', blurb: 'Registration, title, insurance card, recall notices, service receipts.' },
+                            { title: 'Recalls',               phase: 'Phase 7', blurb: 'Background NHTSA lookup by VIN; acknowledge / resolve flow.' },
+                            { title: 'Mileage trends',        phase: 'Phase 8', blurb: 'Chart over time, miles-per-month, predictive ETAs.' },
+                            { title: 'Business mileage',      phase: 'Phase 9', blurb: 'Trip log + IRS-rate reports for CRS deductions.' },
+                        ]" :key="section.title">
+                            <div style="margin-top:1.5rem;">
+                                <div class="page-header">
+                                    <h2 x-text="section.title"></h2>
+                                </div>
+                                <div class="action-item" style="display:block; padding:1rem 1.25rem; color:var(--text-muted);">
+                                    <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.25rem;"
+                                         x-text="'Coming in ' + section.phase"></div>
+                                    <div x-text="section.blurb"></div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <div class="loading" x-show="loading && !currentVehicle?.data && !currentVehicle?.notFound">Loading...</div>
             </div>
         </template>
 
@@ -2449,6 +2725,22 @@
 
     </main>
 
+    <!-- Expanded PDF viewer -->
+    <div class="pdf-overlay" x-ref="pdfOverlay" x-show="showPdfExpanded"
+         @keydown.escape.window="showPdfExpanded && closePdfExpanded()"
+         x-transition.opacity style="display:none;">
+        <div class="pdf-overlay-bar">
+            <span class="pdf-overlay-title" x-text="currentDoc?.title || 'Document'"></span>
+            <div style="display:flex; gap:0.5rem; flex-shrink:0;">
+                <button class="btn btn-sm" @click="togglePdfFullscreen()">⛶ Fullscreen</button>
+                <button class="btn btn-sm" @click="closePdfExpanded()">✕ Close</button>
+            </div>
+        </div>
+        <template x-if="showPdfExpanded">
+            <iframe :src="'/api/documents/' + currentDoc?.id + '/file'"></iframe>
+        </template>
+    </div>
+
     <!-- Upload Modal -->
     <div class="modal-overlay" x-show="showUpload" @click.self="showUpload = false"
          x-transition style="display:none;">
@@ -2465,6 +2757,17 @@
             </div>
             <input type="file" x-ref="fileInput" style="display:none"
                    @change="uploadFile = $event.target.files[0]">
+            <input type="file" x-ref="cameraInput" style="display:none"
+                   accept="image/*" capture="environment"
+                   @change="uploadFile = $event.target.files[0]">
+            <button type="button" class="btn"
+                    @click="$refs.cameraInput.click()"
+                    style="margin-top:0.5rem; width:100%; justify-content:center;">
+                📷 Take photo (single page)
+            </button>
+            <p style="margin:0.5rem 0 0; font-size:0.75rem; color:var(--text-muted); text-align:center;">
+                For multi-page scans, use <a href="/capture/" style="color:var(--primary);">Capture</a>.
+            </p>
 
             <div class="form-group">
                 <label>Title (optional)</label>
@@ -2493,13 +2796,19 @@
             </div>
 
             <div class="form-group">
-                <label>Subject</label>
-                <select x-model="uploadSubject">
-                    <option value="">None</option>
+                <label>Subjects <span style="color:var(--text-muted); font-weight:normal;">— first selected is primary; leave blank to let AI decide</span></label>
+                <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
                     <template x-for="s in subjects" :key="s.id">
-                        <option :value="s.id" x-text="s.name"></option>
+                        <button type="button" class="btn btn-sm"
+                                :style="uploadSubjectIds.includes(s.id) ? 'background:var(--primary); color:#fff; border-color:var(--primary);' : ''"
+                                @click="toggleUploadSubject(s.id)">
+                            <span x-show="uploadSubjectIds.indexOf(s.id) === 0">★&nbsp;</span><span x-text="s.name"></span>
+                        </button>
                     </template>
-                </select>
+                    <span x-show="subjects.length === 0" style="color:var(--text-muted); font-size:0.8rem;">
+                        No subjects yet.
+                    </span>
+                </div>
             </div>
 
             <div class="form-group">
@@ -2547,13 +2856,19 @@
                 </div>
             </div>
             <div class="form-group">
-                <label>Subject</label>
-                <select x-model="editSubject">
-                    <option value="">None</option>
+                <label>Subjects <span style="color:var(--text-muted); font-weight:normal;">— first selected is primary</span></label>
+                <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
                     <template x-for="s in subjects" :key="s.id">
-                        <option :value="s.id" x-text="s.name"></option>
+                        <button type="button" class="btn btn-sm"
+                                :style="editSubjectIds.includes(s.id) ? 'background:var(--primary); color:#fff; border-color:var(--primary);' : ''"
+                                @click="toggleEditSubject(s.id)">
+                            <span x-show="editSubjectIds.indexOf(s.id) === 0">★&nbsp;</span><span x-text="s.name"></span>
+                        </button>
                     </template>
-                </select>
+                    <span x-show="subjects.length === 0" style="color:var(--text-muted); font-size:0.8rem;">
+                        No subjects yet — create one on the Subjects page.
+                    </span>
+                </div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                 <div class="form-group">
@@ -2597,6 +2912,361 @@
             <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
                 <button class="btn" @click="showNewSubject = false">Cancel</button>
                 <button class="btn btn-primary" @click="createSubject()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Vehicle Modal (Auto Phase 2) -->
+    <div class="modal-overlay" x-show="showAddVehicle" @click.self="showAddVehicle = false"
+         x-transition style="display:none;">
+        <div class="modal">
+            <h3>Add vehicle</h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                <div class="form-group">
+                    <label>Year *</label>
+                    <input type="number" x-model.number="newVehicle.year" min="1900" max="2100">
+                </div>
+                <div class="form-group">
+                    <label>Make *</label>
+                    <input type="text" x-model="newVehicle.make">
+                </div>
+                <div class="form-group">
+                    <label>Model *</label>
+                    <input type="text" x-model="newVehicle.model">
+                </div>
+                <div class="form-group">
+                    <label>Trim</label>
+                    <input type="text" x-model="newVehicle.trim">
+                </div>
+                <div class="form-group">
+                    <label>License plate</label>
+                    <input type="text" x-model="newVehicle.license_plate">
+                </div>
+                <div class="form-group">
+                    <label>Color</label>
+                    <input type="text" x-model="newVehicle.color">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>VIN</label>
+                    <input type="text" x-model="newVehicle.vin" style="font-family:monospace;">
+                </div>
+                <div class="form-group">
+                    <label>Current mileage</label>
+                    <input type="number" x-model.number="newVehicle.current_mileage" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Registration expires</label>
+                    <input type="date" x-model="newVehicle.registration_expiration">
+                </div>
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showAddVehicle = false">Cancel</button>
+                <button class="btn btn-primary" @click="createVehicle()"
+                        :disabled="!newVehicle.year || !newVehicle.make || !newVehicle.model">
+                    Create
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Vehicle Modal (Auto Phase 2) -->
+    <div class="modal-overlay" x-show="showEditVehicle" @click.self="showEditVehicle = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:640px;">
+            <h3>Edit vehicle</h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                <div class="form-group">
+                    <label>Year</label>
+                    <input type="number" x-model.number="editVehicle.year">
+                </div>
+                <div class="form-group">
+                    <label>Make</label>
+                    <input type="text" x-model="editVehicle.make">
+                </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <input type="text" x-model="editVehicle.model">
+                </div>
+                <div class="form-group">
+                    <label>Trim</label>
+                    <input type="text" x-model="editVehicle.trim">
+                </div>
+                <div class="form-group">
+                    <label>License plate</label>
+                    <input type="text" x-model="editVehicle.license_plate">
+                </div>
+                <div class="form-group">
+                    <label>Color</label>
+                    <input type="text" x-model="editVehicle.color">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>VIN</label>
+                    <input type="text" x-model="editVehicle.vin" style="font-family:monospace;">
+                </div>
+                <div class="form-group">
+                    <label>Current mileage</label>
+                    <input type="number" x-model.number="editVehicle.current_mileage">
+                </div>
+                <div class="form-group">
+                    <label>Registration expires</label>
+                    <input type="date" x-model="editVehicle.registration_expiration">
+                </div>
+                <div class="form-group">
+                    <label>Purchase date</label>
+                    <input type="date" x-model="editVehicle.purchase_date">
+                </div>
+                <div class="form-group">
+                    <label>Purchase price ($)</label>
+                    <input type="number" step="0.01" x-model.number="editVehicle.purchase_price">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>Notes</label>
+                    <textarea x-model="editVehicle.notes" rows="3"></textarea>
+                </div>
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showEditVehicle = false">Cancel</button>
+                <button class="btn btn-primary" @click="saveVehicleEdit()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Change Modal (Auto Phase 2) -->
+    <div class="modal-overlay" x-show="showStatusChange" @click.self="showStatusChange = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:420px;">
+            <h3>Change status</h3>
+            <div class="form-group">
+                <label>New status</label>
+                <select x-model="statusChangeNew">
+                    <option value="active">Active</option>
+                    <option value="sold">Sold</option>
+                    <option value="totaled">Totaled</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div class="form-group" x-show="statusChangeNew === 'sold' || statusChangeNew === 'totaled'">
+                <label>Date</label>
+                <input type="date" x-model="statusChangeDate">
+            </div>
+            <p style="font-size:0.8rem; color:var(--text-muted);"
+               x-show="statusChangeNew !== 'active'">
+                Not deleted — service history stays intact. The vehicle is hidden from the default fleet view.
+            </p>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showStatusChange = false">Cancel</button>
+                <button class="btn btn-primary" @click="saveStatusChange()">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Merge Vehicles Modal (Auto Phase 2) -->
+    <div class="modal-overlay" x-show="showMerge" @click.self="showMerge = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:820px;">
+            <h3>Merge vehicles</h3>
+            <p style="font-size:0.85rem; color:var(--text-muted);">
+                Move all service history, maintenance schedules, and action items from
+                the current vehicle into another. The current vehicle becomes a hidden
+                merge-audit record.
+            </p>
+
+            <!-- Step 1: pick target -->
+            <div class="form-group" x-show="!mergeTarget">
+                <label>Merge into…</label>
+                <select x-model="mergeTargetId" @change="pickMergeTarget($event.target.value)">
+                    <option value="">— Pick a target vehicle —</option>
+                    <template x-for="v in mergeCandidates()" :key="v.id">
+                        <option :value="v.id"
+                                x-text="(v.data?.year || '?') + ' ' + (v.data?.make || '?') + ' ' + (v.data?.model || '?')
+                                       + (v.data?.license_plate ? ' (' + v.data.license_plate + ')' : '')
+                                       + (v.data?.vin ? ' · VIN …' + v.data.vin.slice(-6) : '')"></option>
+                    </template>
+                </select>
+            </div>
+
+            <!-- Step 2: diff + preview -->
+            <template x-if="mergeTarget && currentVehicle">
+                <div>
+                    <div style="display:flex; gap:1rem; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.75rem;">
+                        <span><strong x-text="mergePreview?.maintenance_schedules || 0"></strong> schedules will move</span>
+                        <span>·</span>
+                        <span><strong x-text="mergePreview?.service_records || 0"></strong> service records</span>
+                        <span>·</span>
+                        <span><strong x-text="mergePreview?.action_items || 0"></strong> pending actions</span>
+                    </div>
+
+                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--border); text-align:left;">
+                                <th style="padding:0.4rem 0.3rem;">Field</th>
+                                <th style="padding:0.4rem 0.3rem;">Source (being merged away)</th>
+                                <th style="padding:0.4rem 0.3rem;">Target (being kept)</th>
+                                <th style="padding:0.4rem 0.3rem;">Keep</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="field in mergeFields" :key="field">
+                                <tr style="border-bottom:1px solid var(--border);">
+                                    <td style="padding:0.4rem 0.3rem; color:var(--text-muted);" x-text="field"></td>
+                                    <td style="padding:0.4rem 0.3rem;"
+                                        :style="(currentVehicle.data?.[field] ?? '') !== (mergeTarget.data?.[field] ?? '')
+                                                ? 'background:rgba(245,158,11,0.08);' : ''"
+                                        x-text="formatMergeCell(currentVehicle.data?.[field])"></td>
+                                    <td style="padding:0.4rem 0.3rem;"
+                                        :style="(currentVehicle.data?.[field] ?? '') !== (mergeTarget.data?.[field] ?? '')
+                                                ? 'background:rgba(245,158,11,0.08);' : ''"
+                                        x-text="formatMergeCell(mergeTarget.data?.[field])"></td>
+                                    <td style="padding:0.4rem 0.3rem;">
+                                        <template x-if="(currentVehicle.data?.[field] ?? '') !== (mergeTarget.data?.[field] ?? '')">
+                                            <select x-model="mergeResolutions[field]" style="font-size:0.8rem; padding:0.2rem;">
+                                                <option value="target">target</option>
+                                                <option value="source">source</option>
+                                                <template x-if="field === 'notes'">
+                                                    <option value="concat">concat</option>
+                                                </template>
+                                            </select>
+                                        </template>
+                                        <span x-show="(currentVehicle.data?.[field] ?? '') === (mergeTarget.data?.[field] ?? '')"
+                                              style="color:var(--text-faint);">—</span>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+
+                    <div class="form-group" style="margin-top:1rem;">
+                        <label>Type the target's plate
+                            (<strong x-text="mergeTarget.data?.license_plate || '(no plate set — type ANY)'"></strong>)
+                            to confirm:</label>
+                        <input type="text" x-model="mergeConfirmPlate" style="font-family:monospace;">
+                    </div>
+                </div>
+            </template>
+
+            <div style="display:flex; gap:0.5rem; justify-content:space-between; align-items:center;">
+                <button class="btn btn-sm" @click="mergeTarget = null; mergeTargetId = ''"
+                        x-show="mergeTarget">← Pick different target</button>
+                <div style="display:flex; gap:0.5rem; margin-left:auto;">
+                    <button class="btn" @click="closeMerge()">Cancel</button>
+                    <button class="btn btn-danger" @click="doMerge()" :disabled="!canSubmitMerge()">
+                        Merge
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Maintenance Template Picker (Auto Phase 3) -->
+    <div class="modal-overlay" x-show="showTemplatePicker" @click.self="showTemplatePicker = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:680px;">
+            <h3>Apply maintenance template</h3>
+
+            <template x-if="!pickedTemplateDetail">
+                <div>
+                    <p style="font-size:0.85rem; color:var(--text-muted);">
+                        Pick a starting point. You can edit or remove anything afterward.
+                    </p>
+                    <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                        <template x-for="t in availableTemplates" :key="t.key">
+                            <button type="button" class="btn"
+                                    style="text-align:left; padding:0.75rem 1rem; display:block;"
+                                    @click="loadTemplateDetail(t.key)">
+                                <div style="font-weight:600;" x-text="t.label + ' (' + t.schedule_count + ' items)'"></div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;" x-text="t.description"></div>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            <template x-if="pickedTemplateDetail">
+                <div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
+                        <div>
+                            <div style="font-weight:600;" x-text="pickedTemplateDetail.label"></div>
+                            <div style="font-size:0.8rem; color:var(--text-muted);"
+                                 x-text="pickedTemplateDetail.description"></div>
+                        </div>
+                        <button class="btn btn-sm" @click="pickedTemplateDetail = null">← Pick different</button>
+                    </div>
+                    <div style="max-height:340px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius); padding:0.5rem;">
+                        <template x-for="entry in pickedTemplateDetail.schedules" :key="entry.service_type">
+                            <label style="display:flex; align-items:center; gap:0.5rem; padding:0.35rem 0.5rem; cursor:pointer;">
+                                <input type="checkbox" x-model="pickedTemplateChecked[entry.service_type]">
+                                <div style="flex:1;">
+                                    <div x-text="entry.service_type"></div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted);"
+                                         x-text="templateEntrySummary(entry)"></div>
+                                </div>
+                            </label>
+                        </template>
+                    </div>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem;">
+                        Items whose service_type already exists for this vehicle will be skipped automatically.
+                    </p>
+                </div>
+            </template>
+
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showTemplatePicker = false">Cancel</button>
+                <button class="btn btn-primary" @click="applyTemplate()"
+                        :disabled="!pickedTemplateDetail || !hasCheckedTemplateEntries()">
+                    Apply
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Schedule Form (Auto Phase 3) -->
+    <div class="modal-overlay" x-show="showScheduleForm" @click.self="showScheduleForm = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:560px;">
+            <h3 x-text="scheduleFormMode === 'edit' ? 'Edit schedule' : 'Add schedule'"></h3>
+            <div class="form-group">
+                <label>Service type *</label>
+                <input type="text" x-model="scheduleForm.service_type" placeholder="e.g. Oil change">
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                <div class="form-group">
+                    <label>Every X miles</label>
+                    <input type="number" x-model.number="scheduleForm.interval_miles" placeholder="5000">
+                </div>
+                <div class="form-group">
+                    <label>Every X months</label>
+                    <input type="number" x-model.number="scheduleForm.interval_months" placeholder="6">
+                </div>
+                <div class="form-group">
+                    <label>Last service date</label>
+                    <input type="date" x-model="scheduleForm.last_service_date">
+                </div>
+                <div class="form-group">
+                    <label>Last service mileage</label>
+                    <input type="number" x-model.number="scheduleForm.last_service_mileage">
+                </div>
+                <div class="form-group">
+                    <label>Estimated cost ($)</label>
+                    <input type="number" step="0.01" x-model.number="scheduleForm.estimated_cost">
+                </div>
+                <div class="form-group">
+                    <label>Provider</label>
+                    <input type="text" x-model="scheduleForm.provider">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>Notes</label>
+                    <textarea x-model="scheduleForm.notes" rows="2"></textarea>
+                </div>
+            </div>
+            <p style="font-size:0.75rem; color:var(--text-muted);">
+                At least one of mileage or month interval is required.
+            </p>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn" @click="showScheduleForm = false">Cancel</button>
+                <button class="btn btn-primary" @click="saveSchedule()"
+                        :disabled="!scheduleForm.service_type || (!scheduleForm.interval_miles && !scheduleForm.interval_months)">
+                    Save
+                </button>
             </div>
         </div>
     </div>
@@ -2708,6 +3378,38 @@ function lifeos() {
 
         // Auto + Home dashboards (Phase 7)
         auto: null,
+        currentVehicle: null,         // active vehicle on the auto-vehicle drill-in
+        vehicleMileageInput: '',      // hero-strip mileage logger input
+        // Phase 2: CRUD + merge state
+        showAddVehicle: false,
+        newVehicle: { year: null, make: '', model: '', trim: '', vin: '', license_plate: '',
+                      color: '', current_mileage: null, registration_expiration: '' },
+        showEditVehicle: false,
+        editVehicle: {},
+        showStatusChange: false,
+        statusChangeNew: 'active',
+        statusChangeDate: '',
+        showMerge: false,
+        mergeTargetId: '',
+        mergeTarget: null,
+        mergePreview: null,
+        mergeResolutions: {},
+        mergeConfirmPlate: '',
+        mergeFields: ['year','make','model','trim','vin','license_plate','color',
+                      'current_mileage','purchase_date','purchase_price',
+                      'registration_expiration','notes'],
+        // Phase 3: schedule UI state
+        showTemplatePicker: false,
+        availableTemplates: [],
+        pickedTemplateKey: '',
+        pickedTemplateDetail: null,
+        pickedTemplateChecked: {},   // service_type -> bool
+        showScheduleForm: false,
+        scheduleFormMode: 'create',  // 'create' | 'edit'
+        scheduleForm: { service_type: '', interval_miles: null, interval_months: null,
+                        last_service_date: '', last_service_mileage: null,
+                        estimated_cost: null, provider: '', notes: '' },
+        editingScheduleId: null,
         home: { contractorFilter: '' },
 
         // Pets (Phase 8)
@@ -2747,6 +3449,7 @@ function lifeos() {
         showEditDoc: false,
         showNewSubject: false,
         showNewAction: false,
+        showPdfExpanded: false,
         isDragover: false,
 
         // Upload form
@@ -2755,6 +3458,7 @@ function lifeos() {
         uploadDomain: '',
         uploadCategory: '',
         uploadSubject: '',
+        uploadSubjectIds: [],  // ordered; first is primary
         uploadTags: '',
         uploading: false,
 
@@ -2763,6 +3467,7 @@ function lifeos() {
         editDomain: '',
         editCategory: '',
         editSubject: '',
+        editSubjectIds: [],  // ordered; first is primary
         editTags: '',
         editDocDate: '',
         editExpDate: '',
@@ -2824,6 +3529,7 @@ function lifeos() {
             if (v === 'medical') this.loadMedical();
             if (v === 'financial') this.loadFinancial();
             if (v === 'auto') this.loadAuto();
+            if (v === 'auto-vehicle' && this.currentVehicle?.id) this.loadVehicle(this.currentVehicle.id);
             if (v === 'home_dash') this.loadHome();
             if (v === 'pets') this.loadPets();
             if (v === 'trends') this.initTrendsView();
@@ -2950,6 +3656,17 @@ function lifeos() {
                 this.duplicates = this.duplicates.filter(d => d.id !== flagId);
                 if (this.attention.duplicates) this.attention.duplicates--;
                 this.toast('Duplicate flag dismissed');
+            } catch {}
+        },
+
+        async keepDuplicateSide(dup, keepKey, deleteKey) {
+            const toDelete = dup[deleteKey];
+            if (!confirm(`Delete "${toDelete.title}" and keep the other?`)) return;
+            try {
+                await this.api(`/api/documents/${toDelete.id}`, { method: 'DELETE' });
+                this.duplicates = this.duplicates.filter(d => d.id !== dup.id);
+                if (this.attention.duplicates) this.attention.duplicates--;
+                this.toast(`Deleted "${toDelete.title}"`);
             } catch {}
         },
 
@@ -3220,7 +3937,7 @@ function lifeos() {
                 if (!this.subjects?.length) await this.loadSubjects();
                 const subjectsParam = ''; // vehicles can belong to non-primary subjects too
                 const [vehicles, schedules, services, actions] = await Promise.all([
-                    fetch('/api/records?record_type=vehicle' + subjectsParam).then((r) => r.json()),
+                    fetch('/api/records?record_type=vehicle&exclude_status=archived,merged' + subjectsParam).then((r) => r.json()),
                     fetch('/api/records?record_type=maintenance_schedule' + subjectsParam).then((r) => r.json()),
                     fetch('/api/records?record_type=service_record&per_page=20').then((r) => r.json()),
                     fetch('/api/actions?domain=auto&status=pending&per_page=20').then((r) => r.json()),
@@ -3235,6 +3952,487 @@ function lifeos() {
                 console.warn('loadAuto failed', e);
             } finally {
                 this.loading = false;
+            }
+        },
+
+        // ── Auto vehicle drill-in ───────────────────────
+        async viewVehicle(id) {
+            this.prevView = this.view;
+            this.view = 'auto-vehicle';
+            this.currentVehicle = { id, loading: true };
+            this.vehicleMileageInput = '';
+            await this.loadVehicle(id);
+        },
+
+        async loadVehicle(id) {
+            try {
+                const [vehicleRes, actionsRes, schedulesRes] = await Promise.all([
+                    fetch(`/api/records/${id}`).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
+                    fetch(`/api/actions?domain=auto&status=pending&per_page=50`).then((r) => r.json()),
+                    fetch(`/api/records?record_type=maintenance_schedule&per_page=100`).then((r) => r.json()),
+                ]);
+                const v = vehicleRes.data;
+                // Only the auto-domain actions tied to this vehicle's schedules
+                // count toward overdue/due-soon for the "next up" calc.
+                const mySchedules = (schedulesRes.data || []).filter(
+                    (s) => s.data?.vehicle_record_id === id
+                );
+                const myScheduleIds = new Set(mySchedules.map((s) => s.id));
+                const myActions = (actionsRes.data || []).filter(
+                    (a) => a.source_record_id && myScheduleIds.has(a.source_record_id)
+                );
+                const overdue = myActions.filter(
+                    (a) => a.due_date && new Date(a.due_date) < new Date()
+                );
+                const dueSoon = myActions.filter((a) => {
+                    if (!a.due_date) return false;
+                    const days = (new Date(a.due_date) - new Date()) / (1000 * 60 * 60 * 24);
+                    return days >= 0 && days <= 30;
+                });
+                this.currentVehicle = {
+                    ...v,
+                    _overdueActionCount: overdue.length,
+                    _dueSoonActionCount: dueSoon.length,
+                    _schedules: mySchedules.slice().sort((a, b) => {
+                        // Soonest-due first, by whichever of date/projection is closer.
+                        const dKey = (s) => {
+                            const dates = [s.data?.next_due_date, s.data?.predicted_due_date]
+                                .filter(Boolean);
+                            return dates.length ? Math.min(...dates.map((d) => new Date(d))) : Infinity;
+                        };
+                        return dKey(a) - dKey(b);
+                    }),
+                };
+                this.vehicleMileageInput = '';
+            } catch (e) {
+                console.warn('loadVehicle failed', e);
+                this.currentVehicle = { id, notFound: true };
+            }
+        },
+
+        async logVehicleMileage() {
+            if (!this.currentVehicle?.id) return;
+            await this.logMileage(this.currentVehicle.id, this.vehicleMileageInput);
+            this.vehicleMileageInput = '';
+            // logMileage calls loadAuto on success; also refresh the drill-in.
+            await this.loadVehicle(this.currentVehicle.id);
+        },
+
+        // "Next up" priority logic — also used by Phase 5 fleet cards.
+        vehicleNextUp(v) {
+            if (!v) return null;
+            const d = v.data || {};
+            const today = new Date();
+            const daysUntil = (iso) => {
+                if (!iso) return null;
+                return Math.floor((new Date(iso) - today) / (1000 * 60 * 60 * 24));
+            };
+            const regDays = daysUntil(d.registration_expiration);
+            if (regDays !== null && regDays <= 30) {
+                return { level: 'red', text: regDays < 0
+                    ? `Registration expired ${Math.abs(regDays)} day${Math.abs(regDays) === 1 ? '' : 's'} ago`
+                    : `Registration expires in ${regDays} day${regDays === 1 ? '' : 's'}` };
+            }
+            if ((v._overdueActionCount || 0) > 0) {
+                return { level: 'red', text: `${v._overdueActionCount} overdue maintenance item${v._overdueActionCount === 1 ? '' : 's'}` };
+            }
+            // Phase 7: open recall → red (placeholder for now)
+            if (regDays !== null && regDays <= 60) {
+                return { level: 'yellow', text: `Registration expires in ${regDays} days` };
+            }
+            if ((v._dueSoonActionCount || 0) > 0) {
+                return { level: 'yellow', text: `${v._dueSoonActionCount} maintenance item${v._dueSoonActionCount === 1 ? '' : 's'} due soon` };
+            }
+            return { level: 'green', text: 'All clear' };
+        },
+
+        formatDaysAgo(iso) {
+            if (!iso) return null;
+            const days = Math.floor((new Date() - new Date(iso)) / (1000 * 60 * 60 * 24));
+            if (days < 0) return 'in the future';
+            if (days === 0) return 'today';
+            if (days === 1) return 'yesterday';
+            if (days < 30) return `${days} days ago`;
+            if (days < 365) return `${Math.floor(days / 30)} months ago`;
+            return `${Math.floor(days / 365)} years ago`;
+        },
+
+        // ── Phase 2: vehicle CRUD ───────────────────────
+        openAddVehicle() {
+            this.newVehicle = { year: null, make: '', model: '', trim: '', vin: '',
+                                license_plate: '', color: '', current_mileage: null,
+                                registration_expiration: '' };
+            this.showAddVehicle = true;
+        },
+
+        async createVehicle() {
+            const payload = {};
+            for (const [k, v] of Object.entries(this.newVehicle)) {
+                if (v !== null && v !== '') payload[k] = v;
+            }
+            if (!payload.year || !payload.make || !payload.model) {
+                this.toast('Year, make, and model are required', 'error');
+                return;
+            }
+            try {
+                const res = await this.api('/api/vehicles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                this.showAddVehicle = false;
+                this.toast(`Added ${payload.year} ${payload.make} ${payload.model}`);
+                await this.viewVehicle(res.data.id);
+            } catch (e) {
+                this.toast('Failed to add vehicle: ' + (e.message || ''), 'error');
+            }
+        },
+
+        openEditVehicle() {
+            if (!this.currentVehicle?.data) return;
+            // Shallow copy so cancel works.
+            this.editVehicle = { ...this.currentVehicle.data };
+            this.showEditVehicle = true;
+        },
+
+        async saveVehicleEdit() {
+            if (!this.currentVehicle?.id) return;
+            const payload = {};
+            for (const f of this.mergeFields) {
+                const v = this.editVehicle[f];
+                // Send empty strings as null to clear fields; keep numbers.
+                if (v === '' || v === undefined) payload[f] = null;
+                else payload[f] = v;
+            }
+            try {
+                await this.api(`/api/vehicles/${this.currentVehicle.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                this.showEditVehicle = false;
+                this.toast('Vehicle updated');
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Save failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        openStatusChange() {
+            if (!this.currentVehicle?.data) return;
+            this.statusChangeNew = this.currentVehicle.data.status || 'active';
+            this.statusChangeDate = this.currentVehicle.data.disposed_date || '';
+            this.showStatusChange = true;
+        },
+
+        async saveStatusChange() {
+            if (!this.currentVehicle?.id) return;
+            const status = this.statusChangeNew;
+            try {
+                if (status === 'active') {
+                    // Reactivate: just PATCH status.
+                    await this.api(`/api/vehicles/${this.currentVehicle.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: 'active', disposed_date: null }),
+                    });
+                } else {
+                    const body = { new_status: status };
+                    if ((status === 'sold' || status === 'totaled') && this.statusChangeDate) {
+                        body.disposed_date = this.statusChangeDate;
+                    }
+                    await this.api(`/api/vehicles/${this.currentVehicle.id}/archive`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                }
+                this.showStatusChange = false;
+                this.toast(`Status: ${status}`);
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Status change failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        // ── Phase 2: merge ──────────────────────────────
+        mergeCandidates() {
+            return (this.auto?.vehicles || []).filter((v) => {
+                if (!this.currentVehicle) return false;
+                if (v.id === this.currentVehicle.id) return false;
+                const s = v.data?.status || 'active';
+                return s !== 'archived' && s !== 'merged';
+            });
+        },
+
+        async openMerge() {
+            this.mergeTarget = null;
+            this.mergeTargetId = '';
+            this.mergePreview = null;
+            this.mergeResolutions = {};
+            this.mergeConfirmPlate = '';
+            // Need fleet list of candidates — load if not already.
+            if (!this.auto?.vehicles?.length) await this.loadAuto();
+            this.showMerge = true;
+        },
+
+        async pickMergeTarget(id) {
+            if (!id) { this.mergeTarget = null; return; }
+            try {
+                const [tgtRes, prevRes] = await Promise.all([
+                    fetch(`/api/records/${id}`).then((r) => r.json()),
+                    fetch(`/api/vehicles/${this.currentVehicle.id}/merge-preview`).then((r) => r.json()),
+                ]);
+                this.mergeTarget = tgtRes.data;
+                this.mergePreview = prevRes.data;
+                // Default every differing field to "target" (safer default).
+                this.mergeResolutions = {};
+                for (const f of this.mergeFields) {
+                    const a = this.currentVehicle.data?.[f] ?? '';
+                    const b = this.mergeTarget.data?.[f] ?? '';
+                    if (a !== b) this.mergeResolutions[f] = 'target';
+                }
+            } catch (e) {
+                this.toast('Could not load target: ' + (e.message || ''), 'error');
+            }
+        },
+
+        closeMerge() {
+            this.showMerge = false;
+            this.mergeTarget = null;
+        },
+
+        formatMergeCell(v) {
+            if (v === null || v === undefined || v === '') return '—';
+            if (typeof v === 'number') return v.toLocaleString();
+            return String(v);
+        },
+
+        canSubmitMerge() {
+            if (!this.mergeTarget) return false;
+            const expected = this.mergeTarget.data?.license_plate || '';
+            // If the target has no plate, accept ANY non-empty confirmation
+            // (forces deliberate intent without a value to compare against).
+            if (!expected) return this.mergeConfirmPlate.trim().length > 0;
+            return this.mergeConfirmPlate.trim().toUpperCase() === expected.trim().toUpperCase();
+        },
+
+        // ── Phase 3: schedule helpers + handlers ────────
+        scheduleIntervalLabel(d) {
+            if (!d) return '';
+            const parts = [];
+            if (d.interval_miles) parts.push(d.interval_miles.toLocaleString() + ' mi');
+            if (d.interval_months) parts.push(d.interval_months + ' mo');
+            return parts.length ? 'Every ' + parts.join(' or ') : 'No interval set';
+        },
+
+        formatShortDate(iso) {
+            if (!iso) return '';
+            const d = new Date(iso + 'T00:00:00');
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        },
+
+        templateEntrySummary(entry) {
+            const parts = [];
+            if (entry.interval_miles) parts.push(entry.interval_miles.toLocaleString() + ' mi');
+            if (entry.interval_months) parts.push(entry.interval_months + ' mo');
+            const interval = parts.length ? 'every ' + parts.join(' or ') : 'date-based';
+            const cost = entry.estimated_cost != null ? ' · ~$' + entry.estimated_cost : '';
+            return interval + cost;
+        },
+
+        async openTemplatePicker() {
+            this.pickedTemplateKey = '';
+            this.pickedTemplateDetail = null;
+            this.pickedTemplateChecked = {};
+            try {
+                const res = await fetch('/api/maintenance-templates').then((r) => r.json());
+                this.availableTemplates = res.data || [];
+                this.showTemplatePicker = true;
+            } catch (e) {
+                this.toast('Failed to load templates', 'error');
+            }
+        },
+
+        async loadTemplateDetail(key) {
+            try {
+                const res = await fetch(`/api/maintenance-templates/${key}`).then((r) => r.json());
+                this.pickedTemplateDetail = res.data;
+                this.pickedTemplateKey = key;
+                // Check everything by default; user opts out per row.
+                this.pickedTemplateChecked = {};
+                for (const e of (res.data.schedules || [])) {
+                    this.pickedTemplateChecked[e.service_type] = true;
+                }
+            } catch (e) {
+                this.toast('Failed to load template', 'error');
+            }
+        },
+
+        hasCheckedTemplateEntries() {
+            return Object.values(this.pickedTemplateChecked).some(Boolean);
+        },
+
+        async applyTemplate() {
+            if (!this.currentVehicle?.id) return;
+            const wanted = Object.entries(this.pickedTemplateChecked)
+                .filter(([, v]) => v).map(([k]) => k);
+            try {
+                const res = await this.api(`/api/vehicles/${this.currentVehicle.id}/schedules/apply-template`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        template_key: this.pickedTemplateKey,
+                        only_service_types: wanted,
+                    }),
+                });
+                const d = res.data;
+                const skippedNote = d.skipped.length ? ` (${d.skipped.length} skipped as duplicates)` : '';
+                this.toast(`Created ${d.created.length} schedules${skippedNote}`);
+                this.showTemplatePicker = false;
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Apply failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        openScheduleForm(existing) {
+            if (existing) {
+                this.scheduleFormMode = 'edit';
+                this.editingScheduleId = existing.id;
+                const d = existing.data || {};
+                this.scheduleForm = {
+                    service_type: d.service_type || '',
+                    interval_miles: d.interval_miles ?? null,
+                    interval_months: d.interval_months ?? null,
+                    last_service_date: d.last_service_date || '',
+                    last_service_mileage: d.last_service_mileage ?? null,
+                    estimated_cost: d.estimated_cost ?? null,
+                    provider: d.provider || '',
+                    notes: d.notes || '',
+                };
+            } else {
+                this.scheduleFormMode = 'create';
+                this.editingScheduleId = null;
+                this.scheduleForm = { service_type: '', interval_miles: null, interval_months: null,
+                                      last_service_date: '', last_service_mileage: null,
+                                      estimated_cost: null, provider: '', notes: '' };
+            }
+            this.showScheduleForm = true;
+        },
+
+        async saveSchedule() {
+            if (!this.currentVehicle?.id) return;
+            // Strip empty strings; preserve nulls.
+            const payload = {};
+            for (const [k, v] of Object.entries(this.scheduleForm)) {
+                if (v === '' || v === undefined) continue;
+                payload[k] = v;
+            }
+            try {
+                if (this.scheduleFormMode === 'edit') {
+                    await this.api(`/api/maintenance-schedules/${this.editingScheduleId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    this.toast('Schedule updated');
+                } else {
+                    payload.vehicle_record_id = this.currentVehicle.id;
+                    await this.api('/api/maintenance-schedules', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    this.toast('Schedule added');
+                }
+                this.showScheduleForm = false;
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Save failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        async deleteSchedule(id) {
+            if (!confirm('Delete this maintenance schedule? Existing action items will be kept and tagged.')) return;
+            try {
+                await this.api(`/api/maintenance-schedules/${id}`, { method: 'DELETE' });
+                this.toast('Schedule deleted');
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Delete failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        renderScheduleTimeline(schedules) {
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const horizonDays = 180;
+            const W = 100;   // percentage-based; SVG viewBox 100x30
+            const H = 30;
+            const dayToX = (iso) => {
+                if (!iso) return null;
+                const days = (new Date(iso + 'T00:00:00') - today) / (1000 * 60 * 60 * 24);
+                if (days < -7 || days > horizonDays) return null;
+                return ((days + 7) / (horizonDays + 7)) * W;
+            };
+            const markers = [];
+            (schedules || []).forEach((s, i) => {
+                const d = s.data || {};
+                // Date-based marker (solid)
+                const dateIso = d.next_due_date;
+                const dx = dayToX(dateIso);
+                if (dx !== null) {
+                    markers.push(`<line x1="${dx}" y1="6" x2="${dx}" y2="24" stroke="var(--primary)" stroke-width="0.6"/>` +
+                                 `<circle cx="${dx}" cy="6" r="1.2" fill="var(--primary)">` +
+                                 `<title>${d.service_type}: ${dateIso}</title></circle>`);
+                }
+                // Mileage projection marker (hatched/dashed)
+                const projIso = d.predicted_due_date;
+                if (projIso && projIso !== dateIso) {
+                    const px = dayToX(projIso);
+                    if (px !== null) {
+                        markers.push(`<line x1="${px}" y1="6" x2="${px}" y2="24" stroke="var(--warning)" stroke-width="0.5" stroke-dasharray="1,1"/>` +
+                                     `<circle cx="${px}" cy="6" r="1" fill="var(--warning)" fill-opacity="0.7">` +
+                                     `<title>${d.service_type}: projected ${projIso}</title></circle>`);
+                    }
+                }
+            });
+            // Today line
+            const tx = (7 / (horizonDays + 7)) * W;
+            const todayMark = `<line x1="${tx}" y1="2" x2="${tx}" y2="28" stroke="var(--text-muted)" stroke-width="0.4"/>` +
+                              `<text x="${tx + 0.6}" y="5" font-size="2.5" fill="var(--text-muted)">today</text>`;
+            // Axis (months)
+            const axis = `<line x1="0" y1="28" x2="100" y2="28" stroke="var(--border)" stroke-width="0.3"/>`;
+            const months = [];
+            for (let m = 0; m <= 6; m++) {
+                const d = new Date(today); d.setDate(d.getDate() + m * 30);
+                const x = ((m * 30 + 7) / (horizonDays + 7)) * W;
+                months.push(`<text x="${x}" y="31" font-size="2.3" fill="var(--text-muted)" text-anchor="middle">${d.toLocaleString(undefined,{month:'short'})}</text>`);
+            }
+            return `<svg viewBox="0 0 100 34" preserveAspectRatio="none" style="width:100%; height:54px;">` +
+                   axis + todayMark + months.join('') + markers.join('') + `</svg>`;
+        },
+
+        async doMerge() {
+            if (!this.canSubmitMerge()) return;
+            const body = {
+                source_vehicle_id: this.currentVehicle.id,
+                target_vehicle_id: this.mergeTarget.id,
+                field_resolutions: this.mergeResolutions,
+            };
+            try {
+                const res = await this.api('/api/vehicles/merge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const d = res.data;
+                this.toast(`Merged: ${d.schedules_moved} schedules, ${d.services_moved} services moved`);
+                this.closeMerge();
+                await this.loadAuto();
+                await this.viewVehicle(d.target_vehicle_id);
+            } catch (e) {
+                this.toast('Merge failed: ' + (e.message || ''), 'error');
             }
         },
 
@@ -3665,6 +4863,8 @@ function lifeos() {
                 this.editDomain = res.data.domain || '';
                 this.editCategory = res.data.category || '';
                 this.editSubject = res.data.subject_id || '';
+                // subjects come back primary-first from the API; preserve that order
+                this.editSubjectIds = (res.data.subjects || []).map(s => s.id);
                 this.editTags = (res.data.tags || []).join(', ');
                 this.editDocDate = res.data.document_date || '';
                 this.editExpDate = res.data.expiration_date || '';
@@ -3672,6 +4872,23 @@ function lifeos() {
                 this._loadSuggest(res.data);
             } catch {
                 this.navigate(this.prevView || 'documents');
+            }
+        },
+
+        openPdfExpanded() {
+            this.showPdfExpanded = true;
+        },
+
+        closePdfExpanded() {
+            if (document.fullscreenElement) document.exitFullscreen();
+            this.showPdfExpanded = false;
+        },
+
+        togglePdfFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                this.$refs.pdfOverlay?.requestFullscreen?.();
             }
         },
 
@@ -3707,7 +4924,8 @@ function lifeos() {
             if (this.editTitle) body.title = this.editTitle;
             if (this.editDomain) body.domain = this.editDomain;
             if (this.editCategory) body.category = this.editCategory;
-            if (this.editSubject) body.subject_id = this.editSubject;
+            // Always send subject_ids (an empty list clears all subjects).
+            body.subject_ids = this.editSubjectIds;
             if (this.editDocDate) body.document_date = this.editDocDate;
             if (this.editExpDate) body.expiration_date = this.editExpDate;
             body.tags = this.editTags.split(',').map(t => t.trim()).filter(Boolean);
@@ -3906,6 +5124,18 @@ function lifeos() {
             }
         },
 
+        toggleUploadSubject(id) {
+            const i = this.uploadSubjectIds.indexOf(id);
+            if (i >= 0) this.uploadSubjectIds.splice(i, 1);
+            else this.uploadSubjectIds.push(id);
+        },
+
+        toggleEditSubject(id) {
+            const i = this.editSubjectIds.indexOf(id);
+            if (i >= 0) this.editSubjectIds.splice(i, 1);
+            else this.editSubjectIds.push(id);
+        },
+
         async doUpload() {
             if (!this.uploadFile) return;
             this.uploading = true;
@@ -3915,6 +5145,7 @@ function lifeos() {
             if (this.uploadDomain) fd.append('domain', this.uploadDomain);
             if (this.uploadCategory) fd.append('category', this.uploadCategory);
             if (this.uploadSubject) fd.append('subject_id', this.uploadSubject);
+            if (this.uploadSubjectIds.length) fd.append('subject_ids', this.uploadSubjectIds.join(','));
             if (this.uploadTags) fd.append('tags', this.uploadTags);
 
             try {
@@ -3925,8 +5156,13 @@ function lifeos() {
                 this.uploadDomain = '';
                 this.uploadCategory = '';
                 this.uploadSubject = '';
+                this.uploadSubjectIds = [];
                 this.uploadTags = '';
-                this.toast(`Uploaded: ${res.data.title} (AI analyzing...)`);
+                if (res.data.skipped) {
+                    this.toast(`Already on file: "${res.data.duplicate_of_title}" (same bytes, not re-uploaded)`);
+                } else {
+                    this.toast(`Uploaded: ${res.data.title} (AI analyzing...)`);
+                }
                 this.loadDocuments();
                 this.loadStats();
             } catch {}

@@ -19,7 +19,7 @@ from search import ensure_collection
 
 from routers import (
     system, subjects, documents, search, actions, email, records, metrics,
-    agent_health, agent_finance, vehicles, trends,
+    agent_health, agent_finance, vehicles, maintenance, trends,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,4 +88,5 @@ app.include_router(metrics.router)
 app.include_router(agent_health.router)
 app.include_router(agent_finance.router)
 app.include_router(vehicles.router)
+app.include_router(maintenance.router)
 app.include_router(trends.router)

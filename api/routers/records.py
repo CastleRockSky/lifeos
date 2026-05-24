@@ -138,6 +138,11 @@ async def list_records(
     domain: Optional[str] = Query(None),
     subject_id: Optional[str] = Query(None),
     source_document_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    # Comma-separated list of statuses to exclude. Defaults to "merged" so
+    # the post-merge audit-only records never show up. Pass an empty string
+    # to include everything (e.g. an admin "include all" toggle).
+    exclude_status: Optional[str] = Query("merged"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
 ):
@@ -160,6 +165,14 @@ async def list_records(
         _add("subject_id = ${}", uuid.UUID(subject_id))
     if source_document_id:
         _add("source_document_id = ${}", uuid.UUID(source_document_id))
+    if status:
+        _add("data->>'status' = ${}", status)
+    if exclude_status:
+        excluded = [s.strip() for s in exclude_status.split(",") if s.strip()]
+        if excluded:
+            idx += 1
+            conditions.append(f"(data->>'status' IS NULL OR data->>'status' <> ALL(${idx}::text[]))")
+            params.append(excluded)
 
     where = " AND ".join(conditions)
     offset = (page - 1) * per_page

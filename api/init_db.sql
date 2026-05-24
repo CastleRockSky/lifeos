@@ -156,11 +156,12 @@ CREATE TABLE action_items (
     due_date DATE,
     source_type VARCHAR(50),                -- ai_extracted, manual, recurring
     source_document_id UUID REFERENCES documents(id),
-    source_record_id UUID REFERENCES structured_records(id),
+    source_record_id UUID REFERENCES structured_records(id) ON DELETE SET NULL,
     status VARCHAR(50) DEFAULT 'pending',   -- pending, completed, snoozed, dismissed
     priority VARCHAR(50) DEFAULT 'medium',  -- low, medium, high
     calendar_event_id VARCHAR(500),
     recurrence_rule TEXT,
+    metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
