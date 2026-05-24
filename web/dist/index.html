@@ -1752,6 +1752,10 @@
                                         green:  'color:var(--success);',
                                      }[(vehicleNextUp(v) || {level:'green'}).level]"
                                      x-text="(vehicleNextUp(v) || {text:'All clear'}).text"></div>
+                                <!-- Sparkline (Phase 8) -->
+                                <div x-show="(v._sparkline || []).length >= 2" style="margin-top:0.4rem;"
+                                     x-html="renderSparkline(v._sparkline)"
+                                     :title="'6-month mileage trend'"></div>
                             </div>
                         </div>
                     </template>
@@ -2168,10 +2172,48 @@
                             </template>
                         </div>
 
+                        <!-- Mileage trends (Phase 8) -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header"><h2>Mileage trends</h2></div>
+                            <template x-if="!currentVehicle._mileageHistory || currentVehicle._mileageHistory.data_quality === 'insufficient'">
+                                <div class="action-item" style="display:block; padding:1rem 1.25rem; color:var(--text-muted);">
+                                    Not enough mileage history yet — log a few readings spaced at least a week apart to see trends.
+                                </div>
+                            </template>
+                            <template x-if="currentVehicle._mileageHistory && currentVehicle._mileageHistory.data_quality !== 'insufficient'">
+                                <div class="action-item" style="display:block; padding:1rem 1.25rem;">
+                                    <!-- Stat block -->
+                                    <div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-bottom:1rem;">
+                                        <div>
+                                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">Miles / month</div>
+                                            <div style="font-size:1.3rem; font-weight:600;"
+                                                 x-text="currentVehicle._mileageHistory.miles_per_month_recent != null
+                                                    ? currentVehicle._mileageHistory.miles_per_month_recent.toLocaleString() + ' mi'
+                                                    : '—'"></div>
+                                            <div x-show="currentVehicle._mileageHistory.data_quality === 'limited'"
+                                                 style="font-size:0.7rem; color:var(--warning);">rough — limited history</div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">Logs in LifeOS</div>
+                                            <div style="font-size:1.3rem; font-weight:600;"
+                                                 x-text="currentVehicle._mileageHistory.total_points || 0"></div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">First → last</div>
+                                            <div style="font-size:0.9rem;"
+                                                 x-text="(currentVehicle._mileageHistory.first_log_date || '?')
+                                                          + ' → ' + (currentVehicle._mileageHistory.last_log_date || '?')"></div>
+                                        </div>
+                                    </div>
+                                    <!-- Chart -->
+                                    <div x-html="lineChartSvg(currentVehicle._mileageHistory.points, 800, 220)"></div>
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- Skeleton sections (remaining phases) -->
                         <template x-for="section in [
                             { title: 'Recalls',               phase: 'Phase 7', blurb: 'Background NHTSA lookup by VIN; acknowledge / resolve flow.' },
-                            { title: 'Mileage trends',        phase: 'Phase 8', blurb: 'Chart over time, miles-per-month, predictive ETAs.' },
                             { title: 'Business mileage',      phase: 'Phase 9', blurb: 'Trip log + IRS-rate reports for CRS deductions.' },
                         ]" :key="section.title">
                             <div style="margin-top:1.5rem;">
@@ -4351,12 +4393,16 @@ function lifeos() {
                         _mileageInput: '',
                         _overdueActionCount: overdueByVehicle[v.id] || 0,
                         _dueSoonActionCount: dueSoonByVehicle[v.id] || 0,
+                        _sparkline: null,  // populated lazily; see loadSparklines below
                     })),
                     schedules: schedules.data || [],
                     serviceHistory: services.data || [],
                     actions: actions.data || [],
                     summary: summary?.data || null,
                 };
+                // Fire-and-forget the sparkline fetches — chart appears as
+                // each one arrives. Don't block the fleet render on them.
+                this.loadSparklines();
             } catch (e) {
                 console.warn('loadAuto failed', e);
             } finally {
@@ -4375,13 +4421,14 @@ function lifeos() {
 
         async loadVehicle(id) {
             try {
-                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes, docsRes] = await Promise.all([
+                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes, docsRes, histRes] = await Promise.all([
                     fetch(`/api/records/${id}`).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
                     fetch(`/api/actions?domain=auto&status=pending&per_page=50`).then((r) => r.json()),
                     fetch(`/api/records?record_type=maintenance_schedule&per_page=100`).then((r) => r.json()),
                     fetch(`/api/records?record_type=service_record&per_page=200`).then((r) => r.json()),
                     fetch(`/api/vehicles/${id}/cost-summary`).then((r) => r.ok ? r.json() : { data: null }),
                     fetch(`/api/vehicles/${id}/documents`).then((r) => r.ok ? r.json() : { data: {} }),
+                    fetch(`/api/vehicles/${id}/mileage-history?granularity=month`).then((r) => r.ok ? r.json() : { data: null }),
                 ]);
                 const v = vehicleRes.data;
                 // Only the auto-domain actions tied to this vehicle's schedules
@@ -4423,6 +4470,7 @@ function lifeos() {
                     }),
                     _costs: costRes?.data || null,
                     _documents: docsRes?.data || {},
+                    _mileageHistory: histRes?.data || null,
                 };
                 this.vehicleMileageInput = '';
             } catch (e) {
@@ -5315,6 +5363,45 @@ function lifeos() {
             } catch (e) {
                 this.toast(e.message, 'error');
             }
+        },
+
+        // ── Phase 8: mileage sparklines for fleet cards ────────────────
+        async loadSparklines() {
+            const vehicles = (this.auto?.vehicles || []);
+            const since = (() => {
+                const d = new Date();
+                d.setMonth(d.getMonth() - 6);
+                return d.toISOString().slice(0, 10);
+            })();
+            // Parallel — bounded by browser concurrency. Each updates its own
+            // card as it returns rather than waiting for the slowest one.
+            await Promise.all(vehicles.map(async (v) => {
+                try {
+                    const res = await fetch(
+                        `/api/vehicles/${v.id}/mileage-history?since=${since}&granularity=week`
+                    ).then((r) => r.ok ? r.json() : null);
+                    v._sparkline = (res?.data?.points || []);
+                } catch (e) { /* silent — card just won't show one */ }
+            }));
+        },
+
+        // Tiny mileage sparkline (no axes, no labels, just direction).
+        renderSparkline(points) {
+            if (!points || points.length < 2) return '';
+            const W = 100, H = 22;
+            const values = points.map((p) => p.value);
+            const min = Math.min(...values), max = Math.max(...values);
+            const range = (max - min) || 1;
+            const stepX = W / (points.length - 1);
+            const xy = (i, v) => [
+                (i * stepX).toFixed(2),
+                (H - 1 - ((v - min) / range) * (H - 2)).toFixed(2),
+            ];
+            const poly = points.map((p, i) => xy(i, p.value).join(',')).join(' ');
+            const last = xy(points.length - 1, values[values.length - 1]);
+            return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%; height:18px; display:block;">` +
+                   `<polyline points="${poly}" fill="none" stroke="var(--primary)" stroke-width="0.8"/>` +
+                   `<circle cx="${last[0]}" cy="${last[1]}" r="0.9" fill="var(--primary)"/></svg>`;
         },
 
         // ── Phase 6: documents panel + attach flow ─────────────────────

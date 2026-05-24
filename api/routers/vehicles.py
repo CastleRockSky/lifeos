@@ -618,6 +618,126 @@ async def cost_summary(vehicle_id: str):
     )}
 
 
+# ── Mileage trends (Auto-redesign Phase 8) ──────────────────────────────
+
+# Below these thresholds the chart still renders but ETAs / per-month
+# stats stop displaying — the projection would be too noisy to trust.
+_MIN_POINTS_FOR_TRENDS = 3
+_MIN_DAYS_FOR_TRENDS = 7
+
+
+def _bucket_mileage_points(metrics, granularity: str) -> list[dict]:
+    """Reduce raw mileage metrics to one point per bucket.
+
+    Last reading within each bucket wins (a chart at week granularity
+    should reflect the odometer at week-end, not its midweek dip into a
+    re-entry typo). Metrics must be chronologically ordered.
+    """
+    if not metrics:
+        return []
+
+    def _key(d: date) -> str:
+        if granularity == "day":
+            return d.isoformat()
+        if granularity == "week":
+            # ISO week-year-week so weeks straddling year boundaries don't collide.
+            year, week, _ = d.isocalendar()
+            return f"{year}-W{week:02d}"
+        # default month
+        return f"{d.year}-{d.month:02d}"
+
+    buckets: dict[str, dict] = {}
+    for m in metrics:
+        recorded = m["recorded_at"]
+        d = recorded.date() if hasattr(recorded, "date") else recorded
+        key = _key(d)
+        # Last write wins because metrics arrive in order.
+        buckets[key] = {"date": d.isoformat(), "value": float(m["value_numeric"])}
+
+    return [buckets[k] for k in sorted(buckets)]
+
+
+def _assess_data_quality(metrics) -> str:
+    """Classify how trustworthy the cadence projection is.
+
+    - ``insufficient``: fewer than _MIN_POINTS_FOR_TRENDS readings OR
+      span <_MIN_DAYS_FOR_TRENDS days. Frontend should hide ETAs.
+    - ``limited``: enough points to draw a chart but the span is between
+      7 and 30 days — chart shows but "per month" extrapolations are
+      marked rough.
+    - ``good``: ≥30 days of history.
+    """
+    if len(metrics) < _MIN_POINTS_FOR_TRENDS:
+        return "insufficient"
+    first = metrics[0]["recorded_at"]
+    last = metrics[-1]["recorded_at"]
+    span_days = (last - first).days
+    if span_days < _MIN_DAYS_FOR_TRENDS:
+        return "insufficient"
+    if span_days < 30:
+        return "limited"
+    return "good"
+
+
+@router.get("/{vehicle_id}/mileage-history")
+async def mileage_history(
+    vehicle_id: str,
+    since: Optional[str] = None,
+    granularity: str = "month",
+):
+    """Mileage time-series for the vehicle's subject. Returns bucketed
+    points + recent-cadence stats + a data_quality classification."""
+    try:
+        vid = uuid.UUID(vehicle_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid vehicle id")
+    if granularity not in ("day", "week", "month"):
+        raise HTTPException(400, "granularity must be one of: day, week, month")
+
+    since_date: Optional[date] = None
+    if since:
+        try:
+            since_date = date.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(400, f"Invalid since date: {since}")
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        vehicle = await _fetch_vehicle(conn, vid)
+        if not vehicle["subject_id"]:
+            # No subject means no metrics were ever written; mileage was only
+            # ever stored on the vehicle's current_mileage field.
+            return {"data": {
+                "points": [], "miles_per_day_recent": None,
+                "miles_per_month_recent": None, "data_quality": "insufficient",
+            }}
+
+        params = [vehicle["subject_id"]]
+        where_extra = ""
+        if since_date:
+            params.append(since_date)
+            where_extra = " AND recorded_at >= $2"
+        rows = await conn.fetch(
+            f"""SELECT value_numeric, recorded_at FROM time_series_metrics
+                WHERE subject_id = $1 AND metric_type = 'mileage'{where_extra}
+                ORDER BY recorded_at""",
+            *params,
+        )
+
+    points = _bucket_mileage_points(rows, granularity)
+    mpd = _mpd_from_metrics(rows)
+
+    return {"data": {
+        "points": points,
+        "miles_per_day_recent": round(mpd, 2) if mpd is not None else None,
+        "miles_per_month_recent": round(mpd * 30, 1) if mpd is not None else None,
+        "data_quality": _assess_data_quality(rows),
+        "first_log_date": points[0]["date"] if points else None,
+        "last_log_date": points[-1]["date"] if points else None,
+        "total_points": len(rows),
+    }}
+
+
 # ── Documents panel (Auto-redesign Phase 6) ─────────────────────────────
 
 @router.get("/{vehicle_id}/documents")
