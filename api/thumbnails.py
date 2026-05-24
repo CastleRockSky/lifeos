@@ -26,10 +26,16 @@ try:
 except ImportError:  # pragma: no cover - dependency always present in the image
     logger.warning("pillow-heif not installed; HEIC/HEIF thumbnails unavailable")
 
-THUMB_WIDTH = 160
-THUMB_HEIGHT = 208
-THUMB_QUALITY = 80
+# 3x the displayed UI box so the same WebP stays crisp on hi-DPI displays
+# (retina laptops, phones). Letter-aspect (8.5:11) approximated.
+THUMB_WIDTH = 480
+THUMB_HEIGHT = 624
+THUMB_QUALITY = 82
 PDFTOPPM_TIMEOUT = 15  # seconds
+
+# Bumped when the rendering parameters change, so old smaller cached files
+# don't get served forever. Forms part of the cache filename below.
+THUMB_VERSION = "v2"
 
 # Raster formats Pillow can open (HEIC/HEIF via the pillow-heif opener above).
 IMAGE_MIME_TYPES = {
@@ -45,12 +51,20 @@ def _cache_dir(upload_dir: str) -> str:
 
 
 def _thumbnail_from_image(image_path: str, output_path: str) -> bool:
-    """Resize an image down to a WebP thumbnail."""
+    """Resize an image down to a WebP thumbnail.
+
+    Uses Pillow's high-quality Lanczos resample (the default for
+    Image.thumbnail). Honors EXIF rotation so phone shots in portrait
+    don't render sideways.
+    """
     try:
         with Image.open(image_path) as img:
+            # Respect EXIF orientation (phone cameras tag rather than rotate).
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
-            img.thumbnail((THUMB_WIDTH, THUMB_HEIGHT))
-            img.save(output_path, "WEBP", quality=THUMB_QUALITY)
+            img.thumbnail((THUMB_WIDTH, THUMB_HEIGHT), Image.LANCZOS)
+            img.save(output_path, "WEBP", quality=THUMB_QUALITY, method=6)
         return True
     except Exception as e:
         logger.warning(f"Thumbnail from image failed for {image_path}: {e}")
@@ -64,9 +78,11 @@ def _thumbnail_from_pdf(pdf_path: str, output_path: str) -> bool:
         tmp_dir = tempfile.mkdtemp(prefix="lifeos-thumb-")
         # Run pdftoppm in its own process group so a timeout can kill the
         # whole tree (ghostscript children included) — see CLAUDE.md gotcha #2.
+        # 200 DPI scaled to ~960px wide gives a sharp source that Pillow then
+        # downsamples to THUMB_WIDTH — sharper than rendering at low DPI.
         proc = subprocess.Popen(
-            ["pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150",
-             "-scale-to", "320", pdf_path, os.path.join(tmp_dir, "page")],
+            ["pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "200",
+             "-scale-to", "960", pdf_path, os.path.join(tmp_dir, "page")],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setsid,
         )
         try:
@@ -104,7 +120,7 @@ def get_or_create_thumbnail(
     Returns None when the file type isn't previewable or rendering fails —
     the caller should fall back to a generic icon.
     """
-    cache_path = os.path.join(_cache_dir(upload_dir), f"{doc_id}.webp")
+    cache_path = os.path.join(_cache_dir(upload_dir), f"{doc_id}-{THUMB_VERSION}.webp")
     if os.path.exists(cache_path):
         return cache_path
     if not file_path or not os.path.exists(file_path):

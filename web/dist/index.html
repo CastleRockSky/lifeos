@@ -2279,22 +2279,22 @@
                                     </div>
                                     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:0.6rem;">
                                         <template x-for="d in currentVehicle._documents[cat]" :key="d.id">
-                                            <div class="action-item" style="display:block; padding:0.6rem; cursor:pointer;"
+                                            <div class="action-item" style="display:block; padding:0.6rem;"
                                                  onmouseover="this.style.background='var(--surface-hover)'"
                                                  onmouseout="this.style.background=''">
-                                                <a :href="d.file_url" target="_blank" style="display:block; text-decoration:none; color:inherit;">
-                                                    <div style="height:90px; background:var(--surface-hover); border-radius:var(--radius); overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:0.4rem;">
+                                                <div style="cursor:zoom-in;" @click="openDocPreview(d)">
+                                                    <div style="height:200px; background:var(--surface-hover); border-radius:var(--radius); overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:0.4rem;">
                                                         <img :src="d.thumbnail_url" loading="lazy"
-                                                             style="max-width:100%; max-height:100%; object-fit:cover;"
+                                                             style="max-width:100%; max-height:100%; object-fit:contain;"
                                                              onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                                                        <div style="display:none; font-size:0.75rem; color:var(--text-muted);"
+                                                        <div style="display:none; font-size:1rem; color:var(--text-muted);"
                                                              x-text="(d.file_type || 'file').toUpperCase()"></div>
                                                     </div>
                                                     <div style="font-size:0.8rem; line-height:1.2; font-weight:500;"
                                                          x-text="d.title" :title="d.title"></div>
                                                     <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.2rem;"
                                                          x-text="d.document_date || ('uploaded ' + d.created_at.slice(0, 10))"></div>
-                                                </a>
+                                                </div>
                                                 <div x-show="d.expiration_date" style="margin-top:0.25rem;">
                                                     <span class="badge"
                                                           :class="{ 'badge-priority-high': isExpirationSoon(d.expiration_date, 30) || isExpirationPast(d.expiration_date) }"
@@ -3968,6 +3968,27 @@
         </div>
     </div>
 
+    <!-- Document Preview Lightbox -->
+    <div x-show="docPreview" @click.self="docPreview = null" @keydown.escape.window="docPreview = null"
+         x-transition style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:100; display:flex; align-items:center; justify-content:center; padding:1.5rem;">
+        <div x-show="docPreview" style="position:relative; width:min(95vw,1100px); height:min(92vh,1400px); background:var(--bg); border-radius:var(--radius); display:flex; flex-direction:column; overflow:hidden;">
+            <div style="display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.85rem; border-bottom:1px solid var(--border);">
+                <div style="font-size:0.9rem; font-weight:500; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                     x-text="docPreview?.title"></div>
+                <a class="btn btn-xs" x-show="docPreview" :href="docPreview?.file_url" target="_blank">Open original</a>
+                <button class="btn btn-xs" @click="docPreview = null">Close</button>
+            </div>
+            <div style="flex:1; min-height:0; background:#1a1a1a;">
+                <iframe x-show="docPreview && docPreview.mime_type === 'application/pdf'"
+                        :src="docPreview?.file_url"
+                        style="width:100%; height:100%; border:0;"></iframe>
+                <img x-show="docPreview && docPreview.mime_type !== 'application/pdf'"
+                     :src="docPreview?.file_url"
+                     style="display:block; width:100%; height:100%; object-fit:contain; background:#1a1a1a;">
+            </div>
+        </div>
+    </div>
+
     <!-- Attach Document Modal (Phase 6) -->
     <div class="modal-overlay" x-show="showAttachDoc" @click.self="showAttachDoc = false"
          x-transition style="display:none;">
@@ -4196,6 +4217,8 @@ function lifeos() {
         showAttachDoc: false,
         attachDocFilter: '',
         attachDocCandidates: [],
+        // Document preview lightbox (object holds the doc dict; falsy = closed)
+        docPreview: null,
 
         // Phase 7: recall refresh in-flight indicator
         recallRefreshing: false,
@@ -6039,6 +6062,13 @@ function lifeos() {
             return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%; height:18px; display:block;">` +
                    `<polyline points="${poly}" fill="none" stroke="var(--primary)" stroke-width="0.8"/>` +
                    `<circle cx="${last[0]}" cy="${last[1]}" r="0.9" fill="var(--primary)"/></svg>`;
+        },
+
+        // Open the document-preview lightbox. Works for both per-vehicle
+        // doc rows (which carry mime_type) and any other place that wants
+        // it — caller just needs to pass {title, file_url, mime_type}.
+        openDocPreview(doc) {
+            this.docPreview = doc;
         },
 
         // ── Phase 6: documents panel + attach flow ─────────────────────
