@@ -324,7 +324,7 @@ async def update_balance(body: BalanceUpdateBody, _: dict = Depends(_require)):
 
         await conn.execute(
             "UPDATE structured_records SET data = $1::jsonb WHERE id = $2",
-            json.dumps(data, default=str), rid,
+            data, rid,
         )
 
         # Trend snapshot

@@ -100,7 +100,7 @@ async def create_record(payload: RecordCreate, request: Request):
             payload.record_type,
             payload.domain,
             uuid.UUID(payload.subject_id) if payload.subject_id else None,
-            json.dumps(cleaned, default=str),
+            cleaned,
             uuid.UUID(payload.source_document_id) if payload.source_document_id else None,
             payload.valid_from,
             payload.valid_to,
@@ -242,7 +242,7 @@ async def update_record(record_id: str, payload: RecordUpdate, request: Request)
     if payload.subject_id is not None:
         _set("subject_id", uuid.UUID(payload.subject_id) if payload.subject_id else None)
     if new_data is not None:
-        _set("data", json.dumps(new_data, default=str))
+        _set("data", new_data)
     if payload.valid_from is not None:
         _set("valid_from", payload.valid_from)
     if payload.valid_to is not None:
