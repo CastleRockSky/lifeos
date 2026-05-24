@@ -212,6 +212,11 @@ async def refresh_recalls(vehicle_id: str, request: Request):
         existing = {r["campaign"] for r in existing_rows if r["campaign"]}
         new_recalls = filter_new_recalls(parsed, existing)
 
+        # Vehicle display name for Phase 10 action item titles.
+        vehicle_name = " ".join(
+            str(p) for p in [vdata.get("year"), vdata.get("make"), vdata.get("model")] if p
+        ) or None
+
         created_ids: list[str] = []
         for blob in new_recalls:
             cleaned = validate_record("vehicle_recall", blob)
@@ -224,15 +229,15 @@ async def refresh_recalls(vehicle_id: str, request: Request):
             )
             created_ids.append(str(row["id"]))
             # Action item so the recall shows up in pending lists / dashboard.
+            component = blob.get("component") or "Vehicle recall"
+            title = f"{vehicle_name}: Recall — {component}" if vehicle_name else f"Recall: {component}"
             await conn.execute(
                 """INSERT INTO action_items
                        (domain, subject_id, title, description,
-                        source_type, source_record_id, priority)
-                   VALUES ('auto', $1, $2, $3, 'recall', $4, 'high')""",
-                vehicle["subject_id"],
-                f"Recall: {blob.get('component') or 'Vehicle recall'}",
-                blob.get("summary"),
-                row["id"],
+                        source_type, source_record_id, priority, metadata)
+                   VALUES ('auto', $1, $2, $3, 'recall', $4, 'high', $5)""",
+                vehicle["subject_id"], title, blob.get("summary"), row["id"],
+                {"vehicle_id": str(vid)},
             )
 
     await audit_log("refresh_recalls", get_user_email(request),

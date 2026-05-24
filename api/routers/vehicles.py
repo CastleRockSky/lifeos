@@ -908,6 +908,250 @@ async def fleet_summary():
     )}
 
 
+# ── Cross-system briefing (Auto-redesign Phase 10) ──────────────────────
+
+
+def _vehicle_display_name(vdata: dict) -> str:
+    """One-line label for a vehicle ("2022 Toyota Sienna"); used in
+    briefing items and action item titles. Falls back to make+model only
+    when the year is missing, or to "Vehicle" as a last resort."""
+    parts = [vdata.get("year"), vdata.get("make"), vdata.get("model")]
+    label = " ".join(str(p) for p in parts if p)
+    return label or "Vehicle"
+
+
+def _compute_briefing(
+    vehicles: list[dict],  # list of {id, data} dicts (active only)
+    overdue_actions: list[dict],  # action_items with auto domain & past due
+    open_recalls: list[dict],  # vehicle_recall blobs with status='open'
+    today: date,
+    reg_window_days: int = 30,
+) -> dict:
+    """Pure aggregator for the briefing endpoint. Returns the structured
+    urgent items + a one-line summary suitable for Coach to drop into a
+    morning briefing.
+
+    Items types:
+      - registration: ``registration_expiration`` ≤ reg_window_days
+      - overdue_maintenance: count of overdue auto action items per vehicle
+      - recall: each open vehicle_recall row
+    """
+    items: list[dict] = []
+
+    # Vehicle index for quick lookup when mapping actions/recalls back to
+    # display names. Keyed by string id.
+    vehicles_by_id: dict[str, dict] = {v["id"]: v for v in vehicles}
+
+    # Registration expirations.
+    for v in vehicles:
+        data = v.get("data") or {}
+        raw = data.get("registration_expiration")
+        if not raw:
+            continue
+        try:
+            d = raw if isinstance(raw, date) else date.fromisoformat(raw)
+        except (TypeError, ValueError):
+            continue
+        days_until = (d - today).days
+        if days_until > reg_window_days:
+            continue
+        name = _vehicle_display_name(data)
+        if days_until < 0:
+            text = f"{name} registration expired {abs(days_until)} day{'s' if abs(days_until) != 1 else ''} ago"
+        elif days_until == 0:
+            text = f"{name} registration expires today"
+        else:
+            text = f"{name} registration expires in {days_until} day{'s' if days_until != 1 else ''}"
+        items.append({
+            "vehicle_id": v["id"], "vehicle_name": name,
+            "kind": "registration", "text": text,
+            "severity": "high" if days_until <= 7 else "warning",
+            "days_until": days_until,
+        })
+
+    # Overdue maintenance — aggregate per vehicle by metadata.vehicle_id.
+    overdue_by_vehicle: dict[str, list[dict]] = {}
+    for a in overdue_actions:
+        vid = (a.get("metadata") or {}).get("vehicle_id")
+        if vid:
+            overdue_by_vehicle.setdefault(vid, []).append(a)
+    for vid, actions in overdue_by_vehicle.items():
+        v = vehicles_by_id.get(vid)
+        if not v:
+            continue
+        name = _vehicle_display_name(v.get("data") or {})
+        n = len(actions)
+        text = (f"{name} {n} maintenance item{'s' if n != 1 else ''} overdue")
+        items.append({
+            "vehicle_id": vid, "vehicle_name": name,
+            "kind": "overdue_maintenance", "text": text,
+            "severity": "high", "count": n,
+        })
+
+    # Open recalls — one item per recall (severity high).
+    for r in open_recalls:
+        vid = r.get("vehicle_record_id")
+        v = vehicles_by_id.get(vid) if vid else None
+        name = _vehicle_display_name(v["data"]) if v else "Vehicle"
+        component = (r.get("component") or "open recall").strip()
+        text = f"{name} open recall: {component}"
+        items.append({
+            "vehicle_id": vid, "vehicle_name": name,
+            "kind": "recall", "text": text, "severity": "high",
+            "campaign": r.get("nhtsa_campaign_number"),
+        })
+
+    # Sort: high severity first, then by days_until (None → end).
+    items.sort(key=lambda x: (
+        0 if x["severity"] == "high" else 1,
+        x.get("days_until") if x.get("days_until") is not None else 99999,
+    ))
+
+    summary_line = None
+    if items:
+        # "Auto: X. Y. Z." — concise enough for a morning briefing line.
+        summary_line = "Auto: " + ". ".join(it["text"] for it in items[:4]) + "."
+
+    return {
+        "as_of": today.isoformat(),
+        "has_urgent": bool(items),
+        "items": items,
+        "summary_line": summary_line,
+    }
+
+
+@router.get("/briefing", include_in_schema=True)
+async def auto_briefing():
+    """Auto-domain urgent items in a Coach-consumable structure. Returns
+    registration expirations within 30 days, overdue maintenance, and
+    open recalls. Designed for agent consumption — the `summary_line`
+    drops straight into a morning briefing."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        veh_rows = await conn.fetch(
+            """SELECT id, data FROM structured_records
+               WHERE record_type = 'vehicle' AND deleted_at IS NULL
+                 AND (data->>'status' IS NULL
+                      OR data->>'status' NOT IN
+                         ('merged','archived','sold','totaled'))"""
+        )
+        vehicles = [
+            {"id": str(r["id"]),
+             "data": r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])}
+            for r in veh_rows
+        ]
+        # Overdue actions: domain='auto', status='pending', due_date < today.
+        action_rows = await conn.fetch(
+            """SELECT id, title, metadata, due_date, source_record_id
+               FROM action_items
+               WHERE domain = 'auto' AND status = 'pending'
+                 AND deleted_at IS NULL
+                 AND due_date IS NOT NULL AND due_date < $1""",
+            date.today(),
+        )
+        overdue = [
+            {"id": str(r["id"]), "title": r["title"], "due_date": r["due_date"].isoformat(),
+             "metadata": r["metadata"] if isinstance(r["metadata"], dict)
+                         else (json.loads(r["metadata"]) if r["metadata"] else {})}
+            for r in action_rows
+        ]
+        recall_rows = await conn.fetch(
+            """SELECT data FROM structured_records
+               WHERE record_type = 'vehicle_recall' AND deleted_at IS NULL
+                 AND data->>'status' = 'open'"""
+        )
+        open_recalls = [
+            r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])
+            for r in recall_rows
+        ]
+
+    return {"data": _compute_briefing(vehicles, overdue, open_recalls, date.today())}
+
+
+# ── Business mileage nudge (Auto-redesign Phase 10) ─────────────────────
+
+# Below this many "unaccounted" miles in the window we don't bother nudging
+# — likely commute / errands / personal trips that wouldn't be billable.
+_NUDGE_MIN_UNACCOUNTED_MILES = 100
+
+
+def _compute_mileage_nudge(
+    odometer_delta_miles: float,
+    logged_trip_miles: float,
+    window_days: int,
+) -> dict:
+    """Compare odometer movement against logged business-trip miles. The
+    delta is a rough heuristic — could include commute, personal trips,
+    etc. — but a large unaccounted gap is worth flagging for review.
+
+    Returns a structured response with ``suggest_logging`` true/false plus
+    the math, so the UI can decide whether to show a nudge."""
+    unaccounted = max(0.0, odometer_delta_miles - logged_trip_miles)
+    suggest = unaccounted >= _NUDGE_MIN_UNACCOUNTED_MILES
+    text: Optional[str] = None
+    if suggest:
+        text = (
+            f"You drove ~{int(round(odometer_delta_miles))} mi in the last "
+            f"{window_days} days but only logged "
+            f"{int(round(logged_trip_miles))} mi as business. "
+            f"Any of the remaining {int(round(unaccounted))} mi billable?"
+        )
+    return {
+        "window_days": window_days,
+        "odometer_delta_miles": round(odometer_delta_miles, 1),
+        "logged_trip_miles": round(logged_trip_miles, 1),
+        "unaccounted_miles": round(unaccounted, 1),
+        "suggest_logging": suggest,
+        "text": text,
+    }
+
+
+@router.get("/{vehicle_id}/mileage-nudge")
+async def mileage_nudge(vehicle_id: str, days: int = 7):
+    """Phase 10 cross-system signal: should the user be prompted to log
+    business mileage this week? Compares the vehicle's odometer delta
+    over the last ``days`` against the sum of logged BusinessTrip miles
+    in the same window."""
+    try:
+        vid = uuid.UUID(vehicle_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid vehicle id")
+    if days < 1 or days > 90:
+        raise HTTPException(400, "days must be between 1 and 90")
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        vehicle = await _fetch_vehicle(conn, vid)
+        if not vehicle["subject_id"]:
+            return {"data": _compute_mileage_nudge(0.0, 0.0, days)}
+
+        # Odometer delta from time_series_metrics: latest minus oldest in window.
+        metrics = await conn.fetch(
+            """SELECT value_numeric FROM time_series_metrics
+               WHERE subject_id = $1 AND metric_type = 'mileage'
+                 AND recorded_at >= NOW() - ($2 || ' days')::interval
+               ORDER BY recorded_at""",
+            vehicle["subject_id"], str(days),
+        )
+        if len(metrics) >= 2:
+            odo_delta = float(metrics[-1]["value_numeric"] - metrics[0]["value_numeric"])
+        else:
+            odo_delta = 0.0
+
+        # Logged business trips for this vehicle in the window.
+        trip_rows = await conn.fetch(
+            """SELECT (data->>'miles')::float AS miles FROM structured_records
+               WHERE record_type = 'business_trip' AND deleted_at IS NULL
+                 AND data->>'vehicle_record_id' = $1
+                 AND (data->>'date')::date >= $2""",
+            str(vid),
+            date.today() - timedelta(days=days),
+        )
+        logged = sum((r["miles"] or 0.0) for r in trip_rows)
+
+    return {"data": _compute_mileage_nudge(odo_delta, logged, days)}
+
+
 # ── Maintenance schedule CRUD (Auto-redesign Phase 3) ───────────────────
 
 class ScheduleCreate(BaseModel):
@@ -1088,6 +1332,20 @@ async def _recompute_schedules(conn, vehicle_id: uuid.UUID, current_mileage: int
         str(vehicle_id),
     )
 
+    # Resolve the vehicle's display name once so action items get titled
+    # "Sienna: Oil change" instead of the generic "Vehicle: Oil change"
+    # (Phase 10 cross-system integration).
+    vrow = await conn.fetchrow(
+        "SELECT data FROM structured_records WHERE id = $1 AND deleted_at IS NULL",
+        vehicle_id,
+    )
+    vdata = (vrow["data"] if vrow and isinstance(vrow["data"], dict)
+             else (json.loads(vrow["data"]) if vrow else {}))
+    vehicle_name = " ".join(
+        str(p) for p in [vdata.get("year"), vdata.get("make"), vdata.get("model")] if p
+    ) or None
+    auto_metadata = {"vehicle_id": str(vehicle_id)}
+
     # Recent miles-per-day cadence from time_series_metrics. Subject-scoped
     # (not vehicle-scoped) — see comment in merge endpoint about commingled
     # mileage when one subject owns multiple vehicles.
@@ -1149,7 +1407,8 @@ async def _recompute_schedules(conn, vehicle_id: uuid.UUID, current_mileage: int
         if isinstance(ndm, int):
             miles_until = ndm - current_mileage
             if miles_until <= _MILEAGE_DUE_WINDOW:
-                title = f"Vehicle: {sdata.get('service_type') or 'Maintenance'}"
+                svc = sdata.get("service_type") or "Maintenance"
+                title = f"{vehicle_name}: {svc}" if vehicle_name else f"Vehicle: {svc}"
                 if miles_until < 0:
                     desc = f"Overdue by {abs(miles_until)} miles (current {current_mileage:,}, due {ndm:,})"
                     priority = "high"
@@ -1167,10 +1426,13 @@ async def _recompute_schedules(conn, vehicle_id: uuid.UUID, current_mileage: int
                     new_id = await conn.fetchval(
                         """INSERT INTO action_items
                                (domain, subject_id, title, description, due_date,
-                                source_type, source_record_id, priority, recurrence_rule)
-                           VALUES ('auto', $1, $2, $3, $4, 'recurring', $5, $6, 'interval')
+                                source_type, source_record_id, priority,
+                                recurrence_rule, metadata)
+                           VALUES ('auto', $1, $2, $3, $4, 'recurring', $5, $6,
+                                   'interval', $7)
                            RETURNING id""",
                         s["subject_id"], title, desc, update_date, s["id"], priority,
+                        auto_metadata,
                     )
                     actions_created.append(str(new_id))
 
@@ -1184,6 +1446,8 @@ async def _recompute_schedules(conn, vehicle_id: uuid.UUID, current_mileage: int
                     data=sdata,
                     subject_id=s["subject_id"],
                     source_document_id=s["source_document_id"],
+                    vehicle_name=vehicle_name,
+                    extra_metadata=auto_metadata,
                 )
             except Exception as e:
                 logger.warning(f"Maintenance action item failed for {s['id']}: {e}")

@@ -663,6 +663,8 @@
                                     </div>
                                 </div>
                                 <div class="action-item-actions">
+                                    <button class="btn btn-xs" x-show="actionVehicleId(a)"
+                                            @click.stop="viewVehicle(actionVehicleId(a))">View vehicle</button>
                                     <button class="btn btn-xs btn-success" @click.stop="updateAction(a.id, 'completed')">Done</button>
                                     <button class="btn btn-xs" @click.stop="updateAction(a.id, 'dismissed')">Dismiss</button>
                                 </div>
@@ -1207,6 +1209,8 @@
                                  x-text="a.description"></div>
                         </div>
                         <div class="action-item-actions">
+                            <button class="btn btn-xs" x-show="actionVehicleId(a)"
+                                    @click.stop="viewVehicle(actionVehicleId(a))">View vehicle</button>
                             <template x-if="a.status !== 'completed'">
                                 <button class="btn btn-xs btn-success" @click.stop="updateAction(a.id, 'completed')">Done</button>
                             </template>
@@ -5844,6 +5848,24 @@ function lifeos() {
             } catch (e) {
                 this.toast('Save failed: ' + (e.message || ''), 'error');
             }
+        },
+
+        // ── Phase 10: action item deep-link to vehicle ─────────────────
+        // Auto-domain actions carry vehicle_id in metadata (maintenance,
+        // recalls) — except for vehicle records themselves, where the
+        // source_record_id IS the vehicle. Treat both paths uniformly.
+        actionVehicleId(action) {
+            if (!action || action.domain !== 'auto') return null;
+            const meta = action.metadata || {};
+            if (meta.vehicle_id) return meta.vehicle_id;
+            // Vehicle records' action items point at the vehicle directly.
+            // Without knowing source_record_type we can't be 100% sure, so
+            // gate on the title looking registration-renewal-ish.
+            if (action.source_record_id
+                && /^(Renew registration|.*registration)/i.test(action.title || '')) {
+                return action.source_record_id;
+            }
+            return null;
         },
 
         // ── Phase 7: vehicle recalls ────────────────────────────────────

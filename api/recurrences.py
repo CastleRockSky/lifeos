@@ -179,6 +179,13 @@ def _action_title_for(record_type: str, data: dict, amount: Optional[float]) -> 
         return data.get("task") or "Home maintenance"
     if record_type == "maintenance_schedule":
         svc = data.get("service_type") or "Maintenance"
+        # Vehicle name (if the caller resolved it) lands ahead of the
+        # service type so the action card reads "Sienna: Oil change" — Phase
+        # 10 cross-system integration; the title also drives the calendar
+        # event and Coach briefing text.
+        vehicle_name = data.get("__vehicle_name") if isinstance(data, dict) else None
+        if vehicle_name:
+            return f"{vehicle_name}: {svc}"
         return f"Vehicle: {svc}"
     if record_type == "vehicle":
         return f"Renew registration: {data.get('year') or ''} {data.get('make') or ''} {data.get('model') or ''}".strip()
@@ -224,6 +231,8 @@ async def ensure_recurring_action_item(
     data: dict,
     subject_id: Optional[uuid.UUID],
     source_document_id: Optional[uuid.UUID] = None,
+    vehicle_name: Optional[str] = None,
+    extra_metadata: Optional[dict] = None,
 ) -> Optional[int]:
     """Create a pending action_item for the next due date if one doesn't exist.
 
@@ -258,7 +267,12 @@ async def ensure_recurring_action_item(
         return None
 
     amount = data.get("amount") or data.get("minimum_payment") or data.get("monthly_payment")
-    title = _action_title_for(record_type, data, amount)
+    # Sneak the resolved vehicle name into the data passed to the title
+    # builder. The dunder key avoids colliding with any real schema field.
+    title_data = data
+    if vehicle_name:
+        title_data = {**data, "__vehicle_name": vehicle_name}
+    title = _action_title_for(record_type, title_data, amount)
     description_parts = []
     if amount is not None:
         try:
@@ -284,12 +298,17 @@ async def ensure_recurring_action_item(
     if next_due < today:
         priority = "high"
 
+    # Phase 10: optional metadata blob lets callers attach deep-link hints
+    # (e.g. vehicle_id) so the UI can render "View vehicle" on the action
+    # card. Defaults to {} so the column is never null.
+    metadata = dict(extra_metadata or {})
+
     new_id = await conn.fetchval("""
         INSERT INTO action_items
             (domain, subject_id, title, description, due_date,
              source_type, source_document_id, source_record_id,
-             priority, recurrence_rule)
-        VALUES ($1, $2, $3, $4, $5, 'recurring', $6, $7, $8, $9)
+             priority, recurrence_rule, metadata)
+        VALUES ($1, $2, $3, $4, $5, 'recurring', $6, $7, $8, $9, $10)
         RETURNING id
     """,
         domain,
@@ -301,5 +320,6 @@ async def ensure_recurring_action_item(
         record_id,
         priority,
         recurrence_rule,
+        metadata,
     )
     return new_id
