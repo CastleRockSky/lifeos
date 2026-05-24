@@ -799,6 +799,7 @@ def _compute_fleet_summary(
     services: list[dict],
     pending_action_due_dates: list[Optional[date]],
     today: date,
+    open_recalls: int = 0,
 ) -> dict:
     """Pure aggregation across the working fleet.
 
@@ -809,6 +810,9 @@ def _compute_fleet_summary(
     pending_action_due_dates: due_date for each pending auto action (or None).
                               Used to count overdue items.
     today: anchor for YTD and the 60-day registration window.
+    open_recalls: precomputed count of vehicle_recall rows with status='open'
+                  across active vehicles (queried separately because it lives
+                  in structured_records, not the input dicts here).
     """
     active = [v for v in vehicles if (v.get("status") or "active") not in _INACTIVE_STATUSES]
 
@@ -851,7 +855,7 @@ def _compute_fleet_summary(
         "vehicle_count": len(active),
         "total_fleet_mileage": total_mileage,
         "ytd_spend": round(ytd_spend, 2),
-        "open_recalls": 0,  # Phase 7 will populate this.
+        "open_recalls": open_recalls,
         "registrations_expiring_60d": expiring_60d,
         "overdue_maintenance": overdue,
     }
@@ -876,6 +880,21 @@ async def fleet_summary():
             """SELECT due_date FROM action_items
                WHERE domain = 'auto' AND status = 'pending' AND deleted_at IS NULL"""
         )
+        # Open recalls only count if their parent vehicle is still active.
+        open_recalls_count = await conn.fetchval(
+            """SELECT COUNT(*) FROM structured_records r
+               WHERE r.record_type = 'vehicle_recall'
+                 AND r.deleted_at IS NULL
+                 AND r.data->>'status' = 'open'
+                 AND EXISTS (
+                     SELECT 1 FROM structured_records v
+                     WHERE v.id::text = r.data->>'vehicle_record_id'
+                       AND v.record_type = 'vehicle'
+                       AND v.deleted_at IS NULL
+                       AND (v.data->>'status' IS NULL
+                            OR v.data->>'status' NOT IN
+                               ('merged','archived','sold','totaled')))"""
+        ) or 0
 
     vehicles = [r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])
                 for r in veh_rows]
@@ -883,7 +902,10 @@ async def fleet_summary():
                 for r in svc_rows]
     due_dates = [r["due_date"] for r in action_rows]
 
-    return {"data": _compute_fleet_summary(vehicles, services, due_dates, date.today())}
+    return {"data": _compute_fleet_summary(
+        vehicles, services, due_dates, date.today(),
+        open_recalls=open_recalls_count,
+    )}
 
 
 # ── Maintenance schedule CRUD (Auto-redesign Phase 3) ───────────────────

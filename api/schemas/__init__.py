@@ -32,6 +32,7 @@ _REGISTRY: dict[str, Any] = {
     "vehicle": auto.Vehicle,
     "maintenance_schedule": auto.MaintenanceSchedule,
     "service_record": auto.ServiceRecord,
+    "vehicle_recall": auto.VehicleRecall,
     # Home
     "property": home.Property,
     "appliance": home.Appliance,

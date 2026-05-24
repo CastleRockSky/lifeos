@@ -1946,6 +1946,82 @@
                             </div>
                         </div>
 
+                        <!-- Recalls (Phase 7) -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                                <h2>Recalls</h2>
+                                <span style="font-size:0.85rem;"
+                                      :style="openRecallCount() > 0 ? 'color:var(--danger); font-weight:500;' : 'color:var(--text-muted);'"
+                                      x-text="openRecallCount() + ' open' + (resolvedRecallCount() > 0 ? ' · ' + resolvedRecallCount() + ' resolved' : '')"></span>
+                                <button class="btn btn-sm" style="margin-left:auto;"
+                                        :disabled="recallRefreshing"
+                                        @click="refreshRecalls()"
+                                        x-text="recallRefreshing ? 'Checking…' : 'Check for recalls'"></button>
+                            </div>
+                            <!-- Open recalls -->
+                            <template x-for="r in (currentVehicle._recalls || []).filter((x) => x.data.status === 'open')" :key="r.id">
+                                <div class="action-item" style="display:block; border-left:4px solid var(--danger);">
+                                    <div style="font-size:0.9rem; font-weight:600;"
+                                         x-text="r.data.component || 'Recall'"></div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.15rem;">
+                                        <span x-text="'Campaign ' + r.data.nhtsa_campaign_number"></span>
+                                        <span x-show="r.data.report_received_date" x-text="' · ' + r.data.report_received_date"></span>
+                                    </div>
+                                    <div x-show="r.data.summary" style="font-size:0.85rem; margin-top:0.4rem;"
+                                         x-text="r.data.summary"></div>
+                                    <details style="margin-top:0.4rem;">
+                                        <summary style="cursor:pointer; font-size:0.8rem; color:var(--text-muted);">Details</summary>
+                                        <div style="font-size:0.8rem; margin-top:0.4rem;" x-show="r.data.consequence">
+                                            <strong>Consequence:</strong>
+                                            <span x-text="r.data.consequence"></span>
+                                        </div>
+                                        <div style="font-size:0.8rem; margin-top:0.4rem;" x-show="r.data.remedy">
+                                            <strong>Remedy:</strong>
+                                            <span x-text="r.data.remedy"></span>
+                                        </div>
+                                    </details>
+                                    <div style="margin-top:0.5rem; display:flex; gap:0.4rem;">
+                                        <button class="btn btn-xs" @click="acknowledgeRecall(r.id)">Acknowledge</button>
+                                        <button class="btn btn-xs btn-success" @click="resolveRecall(r.id)">Mark resolved</button>
+                                    </div>
+                                </div>
+                            </template>
+                            <!-- Acknowledged (still need to be fixed) -->
+                            <template x-for="r in (currentVehicle._recalls || []).filter((x) => x.data.status === 'acknowledged')" :key="r.id">
+                                <div class="action-item" style="display:block; border-left:4px solid var(--warning); opacity:0.85;">
+                                    <div style="font-size:0.9rem; font-weight:500;"
+                                         x-text="r.data.component || 'Recall'"></div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted);">
+                                        <span x-text="'Acknowledged · campaign ' + r.data.nhtsa_campaign_number"></span>
+                                    </div>
+                                    <div style="margin-top:0.5rem;">
+                                        <button class="btn btn-xs btn-success" @click="resolveRecall(r.id)">Mark resolved</button>
+                                    </div>
+                                </div>
+                            </template>
+                            <!-- Resolved (collapsed) -->
+                            <details x-show="resolvedRecallCount() > 0" style="margin-top:0.5rem;">
+                                <summary style="cursor:pointer; font-size:0.85rem; color:var(--text-muted); padding:0.5rem 0;"
+                                         x-text="'Resolved (' + resolvedRecallCount() + ')'"></summary>
+                                <template x-for="r in (currentVehicle._recalls || []).filter((x) => x.data.status === 'resolved')" :key="r.id">
+                                    <div class="action-item" style="display:block; border-left:4px solid var(--success); opacity:0.7;">
+                                        <div style="font-size:0.85rem;" x-text="r.data.component || 'Recall'"></div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted);">
+                                            <span x-text="'Campaign ' + r.data.nhtsa_campaign_number"></span>
+                                            <span x-show="r.data.resolved_at" x-text="' · resolved ' + r.data.resolved_at.slice(0,10)"></span>
+                                        </div>
+                                        <div x-show="r.data.notes" style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem; font-style:italic;"
+                                             x-text="r.data.notes"></div>
+                                    </div>
+                                </template>
+                            </details>
+                            <template x-if="(currentVehicle._recalls || []).length === 0">
+                                <div class="action-item" style="display:block; padding:1rem 1.25rem; color:var(--text-muted); font-size:0.85rem;">
+                                    No recalls on file. Click "Check for recalls" to query NHTSA by make/model/year.
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- Maintenance schedules (Phase 3) -->
                         <div style="margin-top:1.5rem;">
                             <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
@@ -2213,7 +2289,6 @@
 
                         <!-- Skeleton sections (remaining phases) -->
                         <template x-for="section in [
-                            { title: 'Recalls',               phase: 'Phase 7', blurb: 'Background NHTSA lookup by VIN; acknowledge / resolve flow.' },
                             { title: 'Business mileage',      phase: 'Phase 9', blurb: 'Trip log + IRS-rate reports for CRS deductions.' },
                         ]" :key="section.title">
                             <div style="margin-top:1.5rem;">
@@ -3832,6 +3907,9 @@ function lifeos() {
         showAttachDoc: false,
         attachDocFilter: '',
         attachDocCandidates: [],
+
+        // Phase 7: recall refresh in-flight indicator
+        recallRefreshing: false,
         home: { contractorFilter: '' },
 
         // Pets (Phase 8)
@@ -4421,7 +4499,7 @@ function lifeos() {
 
         async loadVehicle(id) {
             try {
-                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes, docsRes, histRes] = await Promise.all([
+                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes, docsRes, histRes, recallsRes] = await Promise.all([
                     fetch(`/api/records/${id}`).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
                     fetch(`/api/actions?domain=auto&status=pending&per_page=50`).then((r) => r.json()),
                     fetch(`/api/records?record_type=maintenance_schedule&per_page=100`).then((r) => r.json()),
@@ -4429,6 +4507,7 @@ function lifeos() {
                     fetch(`/api/vehicles/${id}/cost-summary`).then((r) => r.ok ? r.json() : { data: null }),
                     fetch(`/api/vehicles/${id}/documents`).then((r) => r.ok ? r.json() : { data: {} }),
                     fetch(`/api/vehicles/${id}/mileage-history?granularity=month`).then((r) => r.ok ? r.json() : { data: null }),
+                    fetch(`/api/vehicles/${id}/recalls`).then((r) => r.ok ? r.json() : { data: [] }),
                 ]);
                 const v = vehicleRes.data;
                 // Only the auto-domain actions tied to this vehicle's schedules
@@ -4471,6 +4550,7 @@ function lifeos() {
                     _costs: costRes?.data || null,
                     _documents: docsRes?.data || {},
                     _mileageHistory: histRes?.data || null,
+                    _recalls: recallsRes?.data || [],
                 };
                 this.vehicleMileageInput = '';
             } catch (e) {
@@ -5362,6 +5442,66 @@ function lifeos() {
                 this.loadAuto();
             } catch (e) {
                 this.toast(e.message, 'error');
+            }
+        },
+
+        // ── Phase 7: vehicle recalls ────────────────────────────────────
+        openRecallCount() {
+            return (this.currentVehicle?._recalls || [])
+                .filter((r) => r.data.status === 'open').length;
+        },
+        resolvedRecallCount() {
+            return (this.currentVehicle?._recalls || [])
+                .filter((r) => r.data.status === 'resolved').length;
+        },
+
+        async refreshRecalls() {
+            if (!this.currentVehicle?.id || this.recallRefreshing) return;
+            this.recallRefreshing = true;
+            try {
+                const res = await this.api(
+                    `/api/vehicles/${this.currentVehicle.id}/recalls/refresh`,
+                    { method: 'POST' },
+                );
+                const d = res.data;
+                if (d.new_count > 0) {
+                    this.toast(`Found ${d.new_count} new recall${d.new_count === 1 ? '' : 's'}`);
+                } else {
+                    this.toast(`No new recalls (NHTSA returned ${d.checked})`);
+                }
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Recall check failed: ' + (e.message || ''), 'error');
+            } finally {
+                this.recallRefreshing = false;
+            }
+        },
+
+        async acknowledgeRecall(id) {
+            try {
+                await this.api(`/api/recalls/${id}/acknowledge`, { method: 'POST' });
+                this.toast('Recall acknowledged');
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Acknowledge failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        async resolveRecall(id) {
+            const notes = prompt('Notes (optional — describe the fix):', '');
+            if (notes === null) return;  // cancelled
+            try {
+                const body = {};
+                if (notes) body.notes = notes;
+                await this.api(`/api/recalls/${id}/resolve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                this.toast('Recall marked resolved');
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Resolve failed: ' + (e.message || ''), 'error');
             }
         },
 

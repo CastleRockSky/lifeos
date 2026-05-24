@@ -65,3 +65,24 @@ class ServiceRecord(_Base):
     parts: list[str] = Field(default_factory=list)
     notes: Optional[str] = None
     document_id: Optional[str] = None
+
+
+class VehicleRecall(_Base):
+    """Open / acknowledged / resolved recall surfaced by the NHTSA VIN
+    lookup. Distinct from the recall_notice document category, which is
+    a physical letter that may or may not exist."""
+    vehicle_record_id: Optional[str] = None
+    nhtsa_campaign_number: Optional[str] = None  # unique per NHTSA campaign
+    component: Optional[str] = None
+    summary: Optional[str] = None
+    consequence: Optional[str] = None
+    remedy: Optional[str] = None
+    report_received_date: Optional[date] = None
+    # Lifecycle: open → acknowledged → resolved. (Spec-defined enum, but
+    # kept as str to round-trip future NHTSA additions or manual states.)
+    status: Optional[str] = Field(default="open")
+    resolved_service_record_id: Optional[str] = None
+    discovered_at: Optional[datetime.datetime] = None
+    acknowledged_at: Optional[datetime.datetime] = None
+    resolved_at: Optional[datetime.datetime] = None
+    notes: Optional[str] = None
