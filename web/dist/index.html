@@ -1662,6 +1662,7 @@
                 <div class="page-header" style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
                     <h2>Auto</h2>
                     <button class="btn btn-primary btn-sm" @click="openAddVehicle()">+ Add vehicle</button>
+                    <button class="btn btn-sm" @click="openReports()">Reports</button>
                     <label style="display:flex; align-items:center; gap:0.35rem; font-size:0.8rem; color:var(--text-muted); margin-left:auto; cursor:pointer;">
                         <input type="checkbox" x-model="showArchivedVehicles" @change="loadAuto()">
                         Show archived
@@ -2287,21 +2288,53 @@
                             </template>
                         </div>
 
-                        <!-- Skeleton sections (remaining phases) -->
-                        <template x-for="section in [
-                            { title: 'Business mileage',      phase: 'Phase 9', blurb: 'Trip log + IRS-rate reports for CRS deductions.' },
-                        ]" :key="section.title">
-                            <div style="margin-top:1.5rem;">
-                                <div class="page-header">
-                                    <h2 x-text="section.title"></h2>
-                                </div>
-                                <div class="action-item" style="display:block; padding:1rem 1.25rem; color:var(--text-muted);">
-                                    <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.25rem;"
-                                         x-text="'Coming in ' + section.phase"></div>
-                                    <div x-text="section.blurb"></div>
-                                </div>
+                        <!-- Business mileage (Phase 9) -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header" style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                                <h2>Business mileage</h2>
+                                <select x-model.number="tripsTaxYear" @change="loadVehicle(currentVehicle.id)"
+                                        style="font-size:0.85rem; padding:0.25rem 0.5rem;">
+                                    <template x-for="y in tripYearOptions()" :key="y">
+                                        <option :value="y" x-text="y"></option>
+                                    </template>
+                                </select>
+                                <span style="font-size:0.85rem; color:var(--text-muted);"
+                                      x-text="tripsSummaryLabel()"></span>
+                                <button class="btn btn-sm btn-primary" style="margin-left:auto;"
+                                        @click="openTripForm()">+ Log trip</button>
                             </div>
-                        </template>
+                            <template x-if="(currentVehicle._trips || []).length === 0">
+                                <div class="action-item" style="display:block; padding:1.25rem; color:var(--text-muted);">
+                                    No business trips logged for <span x-text="tripsTaxYear"></span>. Use "+ Log trip" to record one — date, miles, and purpose are enough.
+                                </div>
+                            </template>
+                            <template x-for="t in (currentVehicle._trips || [])" :key="t.id">
+                                <div class="action-item" style="display:block;">
+                                    <div style="display:flex; align-items:flex-start; gap:0.75rem;">
+                                        <div style="flex:1;">
+                                            <div class="action-item-title">
+                                                <span x-text="t.data.date || 'Trip'"></span>
+                                                <span style="color:var(--text-muted); font-weight:normal;"
+                                                      x-text="' · ' + (t.data.miles || 0).toLocaleString() + ' mi'"></span>
+                                            </div>
+                                            <div class="action-item-meta">
+                                                <span x-text="t.data.purpose || ''"></span>
+                                                <span x-show="t.data.client" x-text="' · ' + t.data.client"></span>
+                                                <span x-show="t.data.start_location || t.data.end_location"
+                                                      x-text="' · ' + [t.data.start_location, t.data.end_location].filter(Boolean).join(' → ')"></span>
+                                                <span x-show="t.data.is_round_trip === false" class="badge">one-way</span>
+                                            </div>
+                                            <div x-show="t.data.notes" style="font-size:0.78rem; color:var(--text-muted); margin-top:0.25rem;"
+                                                 x-text="t.data.notes"></div>
+                                        </div>
+                                        <div class="action-item-actions">
+                                            <button class="btn btn-xs" @click="openTripForm(t)">Edit</button>
+                                            <button class="btn btn-xs btn-danger" @click="deleteTrip(t.id)">Delete</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </template>
 
@@ -3679,6 +3712,199 @@
         </div>
     </div>
 
+    <!-- Reports Modal (Phase 9) -->
+    <div class="modal-overlay" x-show="showReports" @click.self="showReports = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:780px; max-height:90vh; overflow-y:auto;">
+            <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
+                <h3 style="margin:0;">Business mileage report</h3>
+                <button class="btn btn-sm" style="margin-left:auto;" @click="showReports = false">Close</button>
+            </div>
+            <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:0.75rem;">
+                <div class="form-group">
+                    <label>Tax year</label>
+                    <select x-model.number="reportTaxYear" @change="loadReport()"
+                            style="font-size:0.85rem; padding:0.3rem 0.5rem;">
+                        <template x-for="y in tripYearOptions()" :key="y">
+                            <option :value="y" x-text="y"></option>
+                        </template>
+                    </select>
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label>Vehicle</label>
+                    <select x-model="reportVehicleId" @change="loadReport()"
+                            style="font-size:0.85rem; padding:0.3rem 0.5rem; width:100%;">
+                        <option value="">All vehicles</option>
+                        <template x-for="v in (auto?.vehicles || [])" :key="v.id">
+                            <option :value="v.id"
+                                    x-text="[v.data?.year, v.data?.make, v.data?.model].filter(Boolean).join(' ')"></option>
+                        </template>
+                    </select>
+                </div>
+                <a class="btn btn-primary" x-show="reportData && reportData.trip_count > 0"
+                   :href="reportPdfUrl()" target="_blank">Export PDF</a>
+            </div>
+            <template x-if="reportLoading">
+                <div class="loading">Loading...</div>
+            </template>
+            <template x-if="!reportLoading && reportData">
+                <div>
+                    <template x-if="(reportData.missing_rate_years || []).length > 0">
+                        <div style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3);
+                                    border-radius:var(--radius); padding:0.6rem 0.85rem; font-size:0.85rem; margin-bottom:0.75rem;">
+                            <strong>Missing IRS rate</strong> for
+                            <span x-text="reportData.missing_rate_years.join(', ')"></span>.
+                            Trips contribute miles but $0 deduction.
+                            <button class="btn btn-xs btn-primary" style="margin-left:0.5rem;"
+                                    @click="promptForRate(reportData.missing_rate_years[0])">Add rate</button>
+                        </div>
+                    </template>
+                    <!-- Summary headline -->
+                    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem; margin-bottom:0.75rem;">
+                        <div class="action-item" style="display:block; padding:0.6rem 0.85rem;">
+                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">Trips</div>
+                            <div style="font-size:1.3rem; font-weight:600;" x-text="reportData.trip_count"></div>
+                        </div>
+                        <div class="action-item" style="display:block; padding:0.6rem 0.85rem;">
+                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">Business miles</div>
+                            <div style="font-size:1.3rem; font-weight:600;"
+                                 x-text="reportData.total_business_miles.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1})"></div>
+                        </div>
+                        <div class="action-item" style="display:block; padding:0.6rem 0.85rem;">
+                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">Deduction</div>
+                            <div style="font-size:1.3rem; font-weight:600;"
+                                 x-text="'$' + reportData.total_deduction.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></div>
+                        </div>
+                    </div>
+                    <!-- By quarter -->
+                    <div x-show="Object.keys(reportData.by_quarter || {}).length" style="margin-bottom:0.75rem;">
+                        <div style="font-size:0.78rem; color:var(--text-muted); text-transform:uppercase; margin-bottom:0.35rem;">By quarter</div>
+                        <table style="width:100%; font-size:0.85rem; border-collapse:collapse;">
+                            <thead><tr style="background:var(--surface-hover);">
+                                <th style="text-align:left; padding:0.35rem 0.5rem;">Quarter</th>
+                                <th style="text-align:right; padding:0.35rem 0.5rem;">Miles</th>
+                                <th style="text-align:right; padding:0.35rem 0.5rem;">Deduction</th>
+                            </tr></thead>
+                            <tbody>
+                                <template x-for="[q, v] in Object.entries(reportData.by_quarter)" :key="q">
+                                    <tr style="border-bottom:1px solid var(--border);">
+                                        <td style="padding:0.3rem 0.5rem;" x-text="q"></td>
+                                        <td style="padding:0.3rem 0.5rem; text-align:right; font-variant-numeric:tabular-nums;"
+                                            x-text="v.miles.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1})"></td>
+                                        <td style="padding:0.3rem 0.5rem; text-align:right; font-variant-numeric:tabular-nums;"
+                                            x-text="'$' + v.deduction.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- By client -->
+                    <div x-show="Object.keys(reportData.by_client || {}).length" style="margin-bottom:0.75rem;">
+                        <div style="font-size:0.78rem; color:var(--text-muted); text-transform:uppercase; margin-bottom:0.35rem;">By client</div>
+                        <table style="width:100%; font-size:0.85rem; border-collapse:collapse;">
+                            <thead><tr style="background:var(--surface-hover);">
+                                <th style="text-align:left; padding:0.35rem 0.5rem;">Client</th>
+                                <th style="text-align:right; padding:0.35rem 0.5rem;">Miles</th>
+                                <th style="text-align:right; padding:0.35rem 0.5rem;">Deduction</th>
+                            </tr></thead>
+                            <tbody>
+                                <template x-for="[c, v] in Object.entries(reportData.by_client)" :key="c">
+                                    <tr style="border-bottom:1px solid var(--border);">
+                                        <td style="padding:0.3rem 0.5rem;" x-text="c"></td>
+                                        <td style="padding:0.3rem 0.5rem; text-align:right; font-variant-numeric:tabular-nums;"
+                                            x-text="v.miles.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1})"></td>
+                                        <td style="padding:0.3rem 0.5rem; text-align:right; font-variant-numeric:tabular-nums;"
+                                            x-text="'$' + v.deduction.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+            <template x-if="!reportLoading && reportData && reportData.trip_count === 0">
+                <div style="font-size:0.9rem; color:var(--text-muted); padding:1rem 0;">
+                    No business trips logged for this filter.
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Log Trip Modal (Phase 9) -->
+    <div class="modal-overlay" x-show="showTripForm" @click.self="showTripForm = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:580px;">
+            <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
+                <h3 x-text="tripFormMode === 'edit' ? 'Edit trip' : 'Log a business trip'"
+                    style="margin:0;"></h3>
+                <label style="margin-left:auto; font-size:0.8rem; color:var(--text-muted); display:flex; align-items:center; gap:0.35rem; cursor:pointer;">
+                    <input type="checkbox" x-model="tripFormDetailed"> Detailed
+                </label>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                <div class="form-group">
+                    <label>Date *</label>
+                    <input type="date" x-model="tripForm.date">
+                </div>
+                <div class="form-group">
+                    <label>Miles *</label>
+                    <input type="number" step="0.1" x-model.number="tripForm.miles">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>Purpose *</label>
+                    <input type="text" x-model="tripForm.purpose"
+                           placeholder="Client visit, parts pickup, site survey…">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label>Client</label>
+                    <input type="text" x-model="tripForm.client" placeholder="CRS client name (optional)">
+                </div>
+                <template x-if="tripFormDetailed">
+                    <div style="grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                        <div class="form-group">
+                            <label>End date (multi-day)</label>
+                            <input type="date" x-model="tripForm.end_date">
+                        </div>
+                        <div class="form-group">
+                            <label>Round trip</label>
+                            <select x-model="tripForm.is_round_trip">
+                                <option :value="true">Yes</option>
+                                <option :value="false">One-way</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Start mileage (odometer)</label>
+                            <input type="number" x-model.number="tripForm.start_mileage">
+                        </div>
+                        <div class="form-group">
+                            <label>End mileage (odometer)</label>
+                            <input type="number" x-model.number="tripForm.end_mileage">
+                        </div>
+                        <div class="form-group">
+                            <label>From</label>
+                            <input type="text" x-model="tripForm.start_location">
+                        </div>
+                        <div class="form-group">
+                            <label>To</label>
+                            <input type="text" x-model="tripForm.end_location">
+                        </div>
+                        <div class="form-group" style="grid-column:1 / -1;">
+                            <label>Notes</label>
+                            <textarea x-model="tripForm.notes" rows="2"></textarea>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.5rem;">
+                <button class="btn" @click="showTripForm = false">Cancel</button>
+                <button class="btn btn-primary" @click="saveTrip()"
+                        :disabled="!tripForm.date || !tripForm.miles || !tripForm.purpose">
+                    Save
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Attach Document Modal (Phase 6) -->
     <div class="modal-overlay" x-show="showAttachDoc" @click.self="showAttachDoc = false"
          x-transition style="display:none;">
@@ -3910,6 +4136,25 @@ function lifeos() {
 
         // Phase 7: recall refresh in-flight indicator
         recallRefreshing: false,
+
+        // Phase 9: business trips state
+        tripsTaxYear: new Date().getFullYear(),
+        showTripForm: false,
+        tripFormMode: 'create',
+        tripFormDetailed: false,  // quick vs detailed input layout
+        tripForm: {
+            date: '', miles: null, purpose: '', client: '',
+            end_date: '', start_mileage: null, end_mileage: null,
+            start_location: '', end_location: '', notes: '',
+            is_round_trip: true,
+        },
+        editingTripId: null,
+        // Reports panel (top-level on Auto page)
+        showReports: false,
+        reportTaxYear: new Date().getFullYear(),
+        reportVehicleId: '',
+        reportData: null,
+        reportLoading: false,
         home: { contractorFilter: '' },
 
         // Pets (Phase 8)
@@ -4499,7 +4744,8 @@ function lifeos() {
 
         async loadVehicle(id) {
             try {
-                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes, docsRes, histRes, recallsRes] = await Promise.all([
+                const year = this.tripsTaxYear || new Date().getFullYear();
+                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes, docsRes, histRes, recallsRes, tripsRes] = await Promise.all([
                     fetch(`/api/records/${id}`).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
                     fetch(`/api/actions?domain=auto&status=pending&per_page=50`).then((r) => r.json()),
                     fetch(`/api/records?record_type=maintenance_schedule&per_page=100`).then((r) => r.json()),
@@ -4508,6 +4754,7 @@ function lifeos() {
                     fetch(`/api/vehicles/${id}/documents`).then((r) => r.ok ? r.json() : { data: {} }),
                     fetch(`/api/vehicles/${id}/mileage-history?granularity=month`).then((r) => r.ok ? r.json() : { data: null }),
                     fetch(`/api/vehicles/${id}/recalls`).then((r) => r.ok ? r.json() : { data: [] }),
+                    fetch(`/api/trips?vehicle_id=${id}&tax_year=${year}`).then((r) => r.ok ? r.json() : { data: [] }),
                 ]);
                 const v = vehicleRes.data;
                 // Only the auto-domain actions tied to this vehicle's schedules
@@ -4551,6 +4798,7 @@ function lifeos() {
                     _documents: docsRes?.data || {},
                     _mileageHistory: histRes?.data || null,
                     _recalls: recallsRes?.data || [],
+                    _trips: tripsRes?.data || [],
                 };
                 this.vehicleMileageInput = '';
             } catch (e) {
@@ -5442,6 +5690,159 @@ function lifeos() {
                 this.loadAuto();
             } catch (e) {
                 this.toast(e.message, 'error');
+            }
+        },
+
+        // ── Phase 9: business mileage ──────────────────────────────────
+        tripYearOptions() {
+            const current = new Date().getFullYear();
+            const years = [];
+            // Reasonable window: 5 prior years through current year. User
+            // can still POST trips for earlier years if needed.
+            for (let y = current; y >= current - 5; y--) years.push(y);
+            return years;
+        },
+
+        tripsSummaryLabel() {
+            const trips = this.currentVehicle?._trips || [];
+            const miles = trips.reduce((s, t) => s + (Number(t.data?.miles) || 0), 0);
+            return `${trips.length} trip${trips.length === 1 ? '' : 's'} · ${miles.toLocaleString(undefined, {maximumFractionDigits: 1})} mi`;
+        },
+
+        openTripForm(existing) {
+            const today = new Date().toISOString().slice(0, 10);
+            if (existing) {
+                const d = existing.data || {};
+                this.tripFormMode = 'edit';
+                this.editingTripId = existing.id;
+                this.tripFormDetailed = !!(d.end_date || d.start_mileage || d.end_mileage
+                                            || d.start_location || d.end_location || d.notes);
+                this.tripForm = {
+                    date: d.date || today,
+                    miles: d.miles ?? null,
+                    purpose: d.purpose || '',
+                    client: d.client || '',
+                    end_date: d.end_date || '',
+                    start_mileage: d.start_mileage ?? null,
+                    end_mileage: d.end_mileage ?? null,
+                    start_location: d.start_location || '',
+                    end_location: d.end_location || '',
+                    notes: d.notes || '',
+                    is_round_trip: d.is_round_trip !== false,
+                };
+            } else {
+                this.tripFormMode = 'create';
+                this.editingTripId = null;
+                this.tripFormDetailed = false;
+                this.tripForm = {
+                    date: today, miles: null, purpose: '', client: '',
+                    end_date: '', start_mileage: null, end_mileage: null,
+                    start_location: '', end_location: '', notes: '',
+                    is_round_trip: true,
+                };
+            }
+            this.showTripForm = true;
+        },
+
+        async saveTrip() {
+            const f = this.tripForm;
+            const payload = {
+                date: f.date, miles: f.miles, purpose: f.purpose,
+                is_round_trip: f.is_round_trip,
+            };
+            if (f.client) payload.client = f.client;
+            if (f.end_date) payload.end_date = f.end_date;
+            if (f.start_mileage != null && f.start_mileage !== '') payload.start_mileage = f.start_mileage;
+            if (f.end_mileage != null && f.end_mileage !== '') payload.end_mileage = f.end_mileage;
+            if (f.start_location) payload.start_location = f.start_location;
+            if (f.end_location) payload.end_location = f.end_location;
+            if (f.notes) payload.notes = f.notes;
+            try {
+                if (this.tripFormMode === 'edit') {
+                    const res = await this.api(`/api/trips/${this.editingTripId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    this.toast(res?.data?.warning || 'Trip updated', res?.data?.warning ? 'warning' : undefined);
+                } else {
+                    payload.vehicle_record_id = this.currentVehicle.id;
+                    const res = await this.api('/api/trips', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    this.toast(res?.data?.warning || 'Trip logged', res?.data?.warning ? 'warning' : undefined);
+                }
+                this.showTripForm = false;
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Save failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        async deleteTrip(id) {
+            if (!confirm('Delete this trip? It will no longer appear in reports.')) return;
+            try {
+                await this.api(`/api/trips/${id}`, { method: 'DELETE' });
+                this.toast('Trip deleted');
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Delete failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        // ── Reports view ────────────────────────────────────────────────
+        async openReports() {
+            this.reportTaxYear = new Date().getFullYear();
+            this.reportVehicleId = '';
+            this.showReports = true;
+            await this.loadReport();
+        },
+
+        async loadReport() {
+            if (!this.showReports) return;
+            this.reportLoading = true;
+            this.reportData = null;
+            try {
+                const params = new URLSearchParams({ tax_year: this.reportTaxYear });
+                if (this.reportVehicleId) params.set('vehicle_id', this.reportVehicleId);
+                const res = await fetch(`/api/trips/report?${params}`).then((r) => r.json());
+                this.reportData = res?.data || null;
+            } catch (e) {
+                this.toast('Report load failed: ' + (e.message || ''), 'error');
+            } finally {
+                this.reportLoading = false;
+            }
+        },
+
+        reportPdfUrl() {
+            const params = new URLSearchParams({ tax_year: this.reportTaxYear });
+            if (this.reportVehicleId) params.set('vehicle_id', this.reportVehicleId);
+            return `/api/trips/report.pdf?${params}`;
+        },
+
+        async promptForRate(year) {
+            const rateStr = prompt(
+                `Enter IRS standard mileage rate for ${year} (dollars per mile, e.g. 0.70):`,
+                '',
+            );
+            if (rateStr === null) return;
+            const rate = parseFloat(rateStr);
+            if (!Number.isFinite(rate) || rate <= 0) {
+                this.toast('Invalid rate', 'error');
+                return;
+            }
+            try {
+                await this.api('/api/irs-mileage-rates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ year: parseInt(year, 10), rate }),
+                });
+                this.toast(`Saved ${year} rate: $${rate.toFixed(3)}/mi`);
+                await this.loadReport();
+            } catch (e) {
+                this.toast('Save failed: ' + (e.message || ''), 'error');
             }
         },
 

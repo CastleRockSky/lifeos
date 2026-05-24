@@ -33,3 +33,6 @@ google-api-python-client>=2.156.0,<3
 pydantic==2.10.3
 pydantic-settings==2.7.0
 aiofiles==24.1.0
+
+# PDF generation (Auto redesign Phase 9 — business mileage reports)
+reportlab>=4.2.0,<5
