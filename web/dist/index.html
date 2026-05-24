@@ -1892,16 +1892,75 @@
                             <!-- Next up callout -->
                             <template x-if="vehicleNextUp(currentVehicle)">
                                 <div style="margin-top:0.85rem; padding:0.6rem 0.85rem; border-radius:var(--radius); font-size:0.85rem;"
-                                     :style="{
+                                     :style="({
                                         red:    'background:rgba(239,68,68,0.12); color:var(--danger); border:1px solid rgba(239,68,68,0.3);',
                                         yellow: 'background:rgba(245,158,11,0.12); color:var(--warning); border:1px solid rgba(245,158,11,0.3);',
                                         green:  'background:rgba(16,185,129,0.12); color:var(--success); border:1px solid rgba(16,185,129,0.3);',
-                                     }[vehicleNextUp(currentVehicle).level]">
+                                     }[vehicleNextUp(currentVehicle).level])
+                                     + ((currentVehicle._overdueActions || []).length + (currentVehicle._dueSoonActions || []).length > 0 ? ' cursor:pointer;' : '')"
+                                     @click="scrollToNeedsAttention()">
                                     <strong>Next up:</strong>
                                     <span x-text="vehicleNextUp(currentVehicle).text"></span>
+                                    <span x-show="(currentVehicle._overdueActions || []).length + (currentVehicle._dueSoonActions || []).length > 0"
+                                          style="float:right; font-size:0.75rem; opacity:0.8;">↓ see below</span>
                                 </div>
                             </template>
                         </div>
+
+                        <!-- Needs attention panel (overdue + due-soon items) -->
+                        <template x-if="(currentVehicle._overdueActions || []).length + (currentVehicle._dueSoonActions || []).length > 0">
+                            <div id="needs-attention" style="margin-top:1rem;">
+                                <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                                    <h2>Needs attention</h2>
+                                    <span style="font-size:0.85rem; color:var(--text-muted);"
+                                          x-text="(currentVehicle._overdueActions || []).length + ' overdue, '
+                                                  + (currentVehicle._dueSoonActions || []).length + ' due soon'"></span>
+                                </div>
+                                <template x-for="a in (currentVehicle._overdueActions || [])" :key="a.id">
+                                    <div class="action-item overdue" style="display:block;">
+                                        <div style="display:flex; align-items:flex-start; gap:0.75rem;">
+                                            <div style="flex:1;">
+                                                <div class="action-item-title" x-text="a.title"></div>
+                                                <div class="action-item-meta">
+                                                    <span class="badge badge-priority-high">overdue</span>
+                                                    <span x-show="a.due_date" x-text="'Due ' + a.due_date"></span>
+                                                    <span x-show="a.description" style="color:var(--text-muted);"
+                                                          x-text="' · ' + a.description"></span>
+                                                </div>
+                                            </div>
+                                            <div class="action-item-actions">
+                                                <button class="btn btn-xs btn-success"
+                                                        @click="await updateAction(a.id, 'completed'); loadVehicle(currentVehicle.id)">Done</button>
+                                                <button class="btn btn-xs"
+                                                        @click="await updateAction(a.id, 'dismissed'); loadVehicle(currentVehicle.id)">Dismiss</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-for="a in (currentVehicle._dueSoonActions || [])" :key="a.id">
+                                    <div class="action-item" style="display:block;">
+                                        <div style="display:flex; align-items:flex-start; gap:0.75rem;">
+                                            <div style="flex:1;">
+                                                <div class="action-item-title" x-text="a.title"></div>
+                                                <div class="action-item-meta">
+                                                    <span class="badge" :class="'badge-priority-' + (a.priority || 'medium')"
+                                                          x-text="a.priority || 'medium'"></span>
+                                                    <span x-show="a.due_date" x-text="'Due ' + a.due_date"></span>
+                                                    <span x-show="a.description" style="color:var(--text-muted);"
+                                                          x-text="' · ' + a.description"></span>
+                                                </div>
+                                            </div>
+                                            <div class="action-item-actions">
+                                                <button class="btn btn-xs btn-success"
+                                                        @click="await updateAction(a.id, 'completed'); loadVehicle(currentVehicle.id)">Done</button>
+                                                <button class="btn btn-xs"
+                                                        @click="await updateAction(a.id, 'dismissed'); loadVehicle(currentVehicle.id)">Dismiss</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
 
                         <!-- Overview key/value grid -->
                         <div style="margin-top:1.5rem;">
@@ -4767,9 +4826,16 @@ function lifeos() {
                     (s) => s.data?.vehicle_record_id === id
                 );
                 const myScheduleIds = new Set(mySchedules.map((s) => s.id));
-                const myActions = (actionsRes.data || []).filter(
-                    (a) => a.source_record_id && myScheduleIds.has(a.source_record_id)
-                );
+                // Actions belong to this vehicle when EITHER their
+                // source_record_id is one of its schedules (mileage/date-
+                // based actions) OR their metadata.vehicle_id points here
+                // (Phase 10 deep-link — covers recalls and any future
+                // non-schedule action).
+                const myActions = (actionsRes.data || []).filter((a) => {
+                    if (a.source_record_id && myScheduleIds.has(a.source_record_id)) return true;
+                    if (a.metadata && a.metadata.vehicle_id === id) return true;
+                    return false;
+                });
                 const overdue = myActions.filter(
                     (a) => a.due_date && new Date(a.due_date) < new Date()
                 );
@@ -4783,6 +4849,8 @@ function lifeos() {
                 );
                 this.currentVehicle = {
                     ...v,
+                    _overdueActions: overdue,
+                    _dueSoonActions: dueSoon,
                     _overdueActionCount: overdue.length,
                     _dueSoonActionCount: dueSoon.length,
                     _schedules: mySchedules.slice().sort((a, b) => {
@@ -5848,6 +5916,12 @@ function lifeos() {
             } catch (e) {
                 this.toast('Save failed: ' + (e.message || ''), 'error');
             }
+        },
+
+        // Smooth-scroll to the Needs attention panel on the vehicle drill-in.
+        scrollToNeedsAttention() {
+            const el = document.getElementById('needs-attention');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         },
 
         // ── Phase 10: action item deep-link to vehicle ─────────────────
