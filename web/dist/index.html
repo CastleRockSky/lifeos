@@ -2277,13 +2277,13 @@
                                         <span x-text="cat.replace(/_/g, ' ')"></span>
                                         <span x-text="' · ' + currentVehicle._documents[cat].length"></span>
                                     </div>
-                                    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:0.6rem;">
+                                    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:0.75rem;">
                                         <template x-for="d in currentVehicle._documents[cat]" :key="d.id">
-                                            <div class="action-item" style="display:block; padding:0.6rem;"
+                                            <div class="action-item" style="display:block; padding:0.75rem;"
                                                  onmouseover="this.style.background='var(--surface-hover)'"
                                                  onmouseout="this.style.background=''">
                                                 <div style="cursor:zoom-in;" @click="openDocPreview(d)">
-                                                    <div style="height:200px; background:var(--surface-hover); border-radius:var(--radius); overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:0.4rem;">
+                                                    <div style="height:360px; background:#1a1a1a; border-radius:var(--radius); overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:0.5rem;">
                                                         <img :src="d.thumbnail_url" loading="lazy"
                                                              style="max-width:100%; max-height:100%; object-fit:contain;"
                                                              onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">

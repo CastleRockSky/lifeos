@@ -26,16 +26,18 @@ try:
 except ImportError:  # pragma: no cover - dependency always present in the image
     logger.warning("pillow-heif not installed; HEIC/HEIF thumbnails unavailable")
 
-# 3x the displayed UI box so the same WebP stays crisp on hi-DPI displays
-# (retina laptops, phones). Letter-aspect (8.5:11) approximated.
-THUMB_WIDTH = 480
-THUMB_HEIGHT = 624
+# Big enough to be legible — desktop-first. At the per-vehicle panel's
+# 360px display height, a 1200x1600 source is 3.3x downsampled on a 2x
+# retina display, which is enough to read body text on a registration
+# card. Letter-aspect (8.5:11) approximated for portrait docs.
+THUMB_WIDTH = 1200
+THUMB_HEIGHT = 1600
 THUMB_QUALITY = 82
-PDFTOPPM_TIMEOUT = 15  # seconds
+PDFTOPPM_TIMEOUT = 20  # seconds — higher DPI takes a touch longer
 
 # Bumped when the rendering parameters change, so old smaller cached files
 # don't get served forever. Forms part of the cache filename below.
-THUMB_VERSION = "v2"
+THUMB_VERSION = "v3"
 
 # Raster formats Pillow can open (HEIC/HEIF via the pillow-heif opener above).
 IMAGE_MIME_TYPES = {
@@ -78,11 +80,11 @@ def _thumbnail_from_pdf(pdf_path: str, output_path: str) -> bool:
         tmp_dir = tempfile.mkdtemp(prefix="lifeos-thumb-")
         # Run pdftoppm in its own process group so a timeout can kill the
         # whole tree (ghostscript children included) — see CLAUDE.md gotcha #2.
-        # 200 DPI scaled to ~960px wide gives a sharp source that Pillow then
+        # 300 DPI scaled to ~1600 wide gives a sharp source that Pillow then
         # downsamples to THUMB_WIDTH — sharper than rendering at low DPI.
         proc = subprocess.Popen(
-            ["pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "200",
-             "-scale-to", "960", pdf_path, os.path.join(tmp_dir, "page")],
+            ["pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "300",
+             "-scale-to", "1600", pdf_path, os.path.join(tmp_dir, "page")],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setsid,
         )
         try:
