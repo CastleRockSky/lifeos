@@ -118,6 +118,16 @@ async def create_service_record(
                 "UPDATE structured_records SET data = $1::jsonb WHERE id = $2",
                 sdata, sched_uuid,
             )
+            # The service that was due is now done — close out any pending
+            # action item the schedule produced. Without this they'd linger
+            # as overdue even after the user logged the completed service.
+            await conn.execute(
+                """UPDATE action_items
+                   SET status = 'completed', completed_at = NOW()
+                   WHERE source_record_id = $1 AND status = 'pending'
+                     AND deleted_at IS NULL""",
+                sched_uuid,
+            )
             vdata = _data(vehicle)
             cm = vdata.get("current_mileage")
             if cm is not None:

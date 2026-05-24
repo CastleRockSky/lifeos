@@ -289,6 +289,39 @@ class TestServiceRecordsAPI:
         assert d["last_service_date"] == "2026-05-23"
         assert d["next_due_mileage"] == 55100
 
+    def test_link_to_schedule_closes_pending_action_item(self, vehicle_id):
+        """Logging a service that fulfills a pending action item should
+        close that action — otherwise it lingers as "overdue" forever
+        even though the work was just done."""
+        # Schedule + an existing pending action against it, mimicking what
+        # _recompute_schedules creates when something's overdue.
+        _, sched_body = _request("POST", "/api/maintenance-schedules", {
+            "vehicle_record_id": vehicle_id,
+            "service_type": "Oil change",
+            "interval_miles": 5000,
+            "last_service_mileage": 40000,
+        })
+        sched_id = sched_body["data"]["id"]
+        # Push mileage past the due window so an action item fires.
+        _request("POST", f"/api/vehicles/{vehicle_id}/mileage", {"mileage": 45500})
+        status, actions = _request("GET",
+            "/api/actions?domain=auto&status=pending&per_page=100")
+        pre_action_ids = [a["id"] for a in actions["data"]
+                          if a.get("source_record_id") == sched_id]
+        assert pre_action_ids, "expected the recompute to create an action"
+
+        # Log the service with link_to_schedule_id — should close the action.
+        _request("POST", f"/api/service-records?link_to_schedule_id={sched_id}", {
+            "vehicle_record_id": vehicle_id,
+            "date": "2026-05-23", "service_type": "Oil change",
+            "mileage": 45500, "cost": 75.0,
+        })
+        status, actions = _request("GET",
+            "/api/actions?domain=auto&status=pending&per_page=100")
+        survivors = [a["id"] for a in actions["data"]
+                     if a["id"] in pre_action_ids]
+        assert not survivors, "linked service should close the prior pending action"
+
     def test_patch_service_record(self, vehicle_id):
         status, body = _request("POST", "/api/service-records", {
             "vehicle_record_id": vehicle_id,
