@@ -606,6 +606,106 @@ async def cost_summary(vehicle_id: str):
     )}
 
 
+# ── Fleet summary (Auto-redesign Phase 5) ───────────────────────────────
+
+# Vehicle status values that should NOT count toward fleet totals. `merged`
+# rows are audit-only; archived/sold/totaled vehicles still live in the DB
+# but aren't part of the working fleet.
+_INACTIVE_STATUSES = {"merged", "archived", "sold", "totaled"}
+
+
+def _compute_fleet_summary(
+    vehicles: list[dict],
+    services: list[dict],
+    pending_action_due_dates: list[Optional[date]],
+    today: date,
+) -> dict:
+    """Pure aggregation across the working fleet.
+
+    vehicles: list of vehicle data blobs (status field is consulted; defaults
+              to 'active' when absent). Inactive statuses are excluded.
+    services: list of service-record data blobs across all vehicles.
+              cost/date fields used; vehicle attribution doesn't matter here.
+    pending_action_due_dates: due_date for each pending auto action (or None).
+                              Used to count overdue items.
+    today: anchor for YTD and the 60-day registration window.
+    """
+    active = [v for v in vehicles if (v.get("status") or "active") not in _INACTIVE_STATUSES]
+
+    total_mileage = 0
+    expiring_60d = 0
+    for v in active:
+        m = v.get("current_mileage")
+        if isinstance(m, int):
+            total_mileage += m
+        raw = v.get("registration_expiration")
+        if raw:
+            try:
+                d = raw if isinstance(raw, date) else date.fromisoformat(raw)
+            except (TypeError, ValueError):
+                d = None
+            if d is not None:
+                days_until = (d - today).days
+                if 0 <= days_until <= 60:
+                    expiring_60d += 1
+
+    ytd_spend = 0.0
+    for s in services:
+        cost = s.get("cost")
+        if not isinstance(cost, (int, float)):
+            continue
+        raw = s.get("date")
+        try:
+            d = raw if isinstance(raw, date) else date.fromisoformat(raw) if isinstance(raw, str) else None
+        except ValueError:
+            d = None
+        if d is not None and d.year == today.year:
+            ytd_spend += float(cost)
+
+    overdue = sum(
+        1 for due in pending_action_due_dates
+        if due is not None and due < today
+    )
+
+    return {
+        "vehicle_count": len(active),
+        "total_fleet_mileage": total_mileage,
+        "ytd_spend": round(ytd_spend, 2),
+        "open_recalls": 0,  # Phase 7 will populate this.
+        "registrations_expiring_60d": expiring_60d,
+        "overdue_maintenance": overdue,
+    }
+
+
+@router.get("/fleet-summary", include_in_schema=True)
+async def fleet_summary():
+    """Aggregate counters for the fleet header. Single endpoint so the UI
+    doesn't fan out to records / actions / cost-summary per vehicle on
+    every page render."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        veh_rows = await conn.fetch(
+            """SELECT data FROM structured_records
+               WHERE record_type = 'vehicle' AND deleted_at IS NULL"""
+        )
+        svc_rows = await conn.fetch(
+            """SELECT data FROM structured_records
+               WHERE record_type = 'service_record' AND deleted_at IS NULL"""
+        )
+        action_rows = await conn.fetch(
+            """SELECT due_date FROM action_items
+               WHERE domain = 'auto' AND status = 'pending' AND deleted_at IS NULL"""
+        )
+
+    vehicles = [r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])
+                for r in veh_rows]
+    services = [r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])
+                for r in svc_rows]
+    due_dates = [r["due_date"] for r in action_rows]
+
+    return {"data": _compute_fleet_summary(vehicles, services, due_dates, date.today())}
+
+
 # ── Maintenance schedule CRUD (Auto-redesign Phase 3) ───────────────────
 
 class ScheduleCreate(BaseModel):
