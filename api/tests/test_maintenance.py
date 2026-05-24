@@ -445,8 +445,11 @@ class TestMaintenanceAPI:
         assert status == 200
         assert body["data"]["data"]["next_due_mileage"] == 50000
 
-    def test_delete_schedule_tags_action_items(self, vehicle_id):
-        # Log mileage close to a 5000-mi interval so an action fires.
+    def test_delete_schedule_dismisses_pending_action_items(self, vehicle_id):
+        """When a schedule is deleted, its pending actions transition to
+        ``dismissed`` (not just tagged) — otherwise they linger as overdue
+        tombstones forever. The metadata flag is preserved so audit
+        queries can still tell why the action was dismissed."""
         status, body = _request("POST", "/api/maintenance-schedules", {
             "vehicle_record_id": vehicle_id,
             "service_type": "Delete-tag test",
@@ -455,26 +458,32 @@ class TestMaintenanceAPI:
         })
         sid = body["data"]["id"]
 
-        # Push mileage past the due window to guarantee an action item.
+        # Push mileage past the due window so an action fires.
         _request("POST", f"/api/vehicles/{vehicle_id}/mileage", {"mileage": 50200})
 
         # Capture the action item ids the schedule produced — after delete
         # the FK is nulled so we can't look them up via source_record_id.
         status, actions = _request("GET",
             "/api/actions?domain=auto&status=pending&per_page=100")
-        assert status == 200
         action_ids = {a["id"] for a in actions["data"] if a.get("source_record_id") == sid}
         assert action_ids, "expected at least one action item for the schedule"
 
         # Delete the schedule.
-        status, _ = _request("DELETE", f"/api/maintenance-schedules/{sid}")
+        status, body = _request("DELETE", f"/api/maintenance-schedules/{sid}")
         assert status == 200
+        assert body["data"]["actions_dismissed"] == len(action_ids)
 
-        # Action items survive (FK was SET NULL) and carry schedule_deleted=true.
+        # Pending list no longer contains the survivors — they were dismissed.
         status, actions = _request("GET",
             "/api/actions?domain=auto&status=pending&per_page=100")
-        survivors = [a for a in actions["data"] if a["id"] in action_ids]
-        assert len(survivors) == len(action_ids), "action items should not be deleted"
-        for a in survivors:
-            assert a["source_record_id"] is None, "source_record_id should be nulled"
+        still_pending = [a for a in actions["data"] if a["id"] in action_ids]
+        assert not still_pending, "actions should no longer be pending after schedule delete"
+
+        # The audit trail survives at status=dismissed with the tag still set.
+        status, actions = _request("GET",
+            "/api/actions?domain=auto&status=dismissed&per_page=100")
+        dismissed = [a for a in actions["data"] if a["id"] in action_ids]
+        assert len(dismissed) == len(action_ids)
+        for a in dismissed:
+            assert a["source_record_id"] is None
             assert a.get("metadata", {}).get("schedule_deleted") is True

@@ -144,9 +144,12 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdate, request: Reque
 
 @router.delete("/maintenance-schedules/{schedule_id}")
 async def delete_schedule(schedule_id: str, request: Request):
-    """Hard-delete a schedule. Pending action items it produced get tagged
-    with metadata.schedule_deleted = true so the UI can distinguish them
-    from active recurring items."""
+    """Hard-delete a schedule. Pending action items it produced get
+    dismissed (with metadata.schedule_deleted = true) so they vanish
+    from pending / overdue lists but remain in the DB for audit. The
+    earlier behaviour of only tagging them left tombstones lingering
+    as "overdue" forever; transitioning to `dismissed` reflects the
+    user's actual intent — they're done with that schedule."""
     try:
         sid = uuid.UUID(schedule_id)
     except ValueError:
@@ -155,15 +158,24 @@ async def delete_schedule(schedule_id: str, request: Request):
     pool = get_pool()
     async with pool.acquire() as conn:
         await _fetch_schedule(conn, sid)
-        await conn.execute(
-            """UPDATE action_items
-               SET metadata = COALESCE(metadata, '{}'::jsonb)
-                            || jsonb_build_object('schedule_deleted', true)
-               WHERE source_record_id = $1 AND deleted_at IS NULL""",
+        dismissed = await conn.fetchval(
+            """WITH updated AS (
+                   UPDATE action_items
+                   SET status = 'dismissed',
+                       completed_at = NOW(),
+                       metadata = COALESCE(metadata, '{}'::jsonb)
+                                  || jsonb_build_object('schedule_deleted', true)
+                   WHERE source_record_id = $1
+                     AND status = 'pending'
+                     AND deleted_at IS NULL
+                   RETURNING 1
+               ) SELECT COUNT(*) FROM updated""",
             sid,
         )
         await conn.execute("DELETE FROM structured_records WHERE id = $1", sid)
 
     await audit_log("delete", get_user_email(request), "structured_records",
-                    schedule_id, {"record_type": "maintenance_schedule"})
-    return {"data": {"id": schedule_id, "deleted": True}}
+                    schedule_id, {"record_type": "maintenance_schedule",
+                                   "actions_dismissed": dismissed})
+    return {"data": {"id": schedule_id, "deleted": True,
+                     "actions_dismissed": dismissed}}
