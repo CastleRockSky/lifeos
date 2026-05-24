@@ -2110,9 +2110,66 @@
                             </template>
                         </div>
 
+                        <!-- Documents panel (Phase 6) -->
+                        <div style="margin-top:1.5rem;">
+                            <div class="page-header" style="display:flex; align-items:center; gap:0.75rem;">
+                                <h2>Documents</h2>
+                                <span style="font-size:0.85rem; color:var(--text-muted);"
+                                      x-text="vehicleDocumentCount() + ' on file'"></span>
+                                <button class="btn btn-sm" style="margin-left:auto;"
+                                        @click="openAttachDocument()">+ Attach</button>
+                            </div>
+                            <template x-if="vehicleDocumentCount() === 0">
+                                <div class="action-item" style="display:block; padding:1.25rem;">
+                                    <div style="font-size:0.9rem; margin-bottom:0.5rem;">No documents linked to this vehicle yet.</div>
+                                    <div style="font-size:0.8rem; color:var(--text-muted);">
+                                        Use "+ Attach" to link an existing auto document, or upload a registration / insurance card and it'll auto-link by VIN.
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-for="cat in Object.keys(currentVehicle._documents || {}).sort()" :key="cat">
+                                <div style="margin-bottom:1rem;">
+                                    <div style="font-size:0.78rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.4rem;">
+                                        <span x-text="cat.replace(/_/g, ' ')"></span>
+                                        <span x-text="' · ' + currentVehicle._documents[cat].length"></span>
+                                    </div>
+                                    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:0.6rem;">
+                                        <template x-for="d in currentVehicle._documents[cat]" :key="d.id">
+                                            <div class="action-item" style="display:block; padding:0.6rem; cursor:pointer;"
+                                                 onmouseover="this.style.background='var(--surface-hover)'"
+                                                 onmouseout="this.style.background=''">
+                                                <a :href="d.file_url" target="_blank" style="display:block; text-decoration:none; color:inherit;">
+                                                    <div style="height:90px; background:var(--surface-hover); border-radius:var(--radius); overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:0.4rem;">
+                                                        <img :src="d.thumbnail_url" loading="lazy"
+                                                             style="max-width:100%; max-height:100%; object-fit:cover;"
+                                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                                        <div style="display:none; font-size:0.75rem; color:var(--text-muted);"
+                                                             x-text="(d.file_type || 'file').toUpperCase()"></div>
+                                                    </div>
+                                                    <div style="font-size:0.8rem; line-height:1.2; font-weight:500;"
+                                                         x-text="d.title" :title="d.title"></div>
+                                                    <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.2rem;"
+                                                         x-text="d.document_date || ('uploaded ' + d.created_at.slice(0, 10))"></div>
+                                                </a>
+                                                <div x-show="d.expiration_date" style="margin-top:0.25rem;">
+                                                    <span class="badge"
+                                                          :class="{ 'badge-priority-high': isExpirationSoon(d.expiration_date, 30) || isExpirationPast(d.expiration_date) }"
+                                                          :style="(!isExpirationSoon(d.expiration_date, 30) && !isExpirationPast(d.expiration_date)) ? '' : 'color:#fff;'"
+                                                          x-text="(isExpirationPast(d.expiration_date) ? 'Expired ' : 'Expires ') + d.expiration_date"></span>
+                                                </div>
+                                                <div style="margin-top:0.25rem;">
+                                                    <button class="btn btn-xs" @click.stop="detachDocument(d.id)"
+                                                            style="font-size:0.65rem;">Unlink</button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- Skeleton sections (remaining phases) -->
                         <template x-for="section in [
-                            { title: 'Documents',             phase: 'Phase 6', blurb: 'Registration, title, insurance card, recall notices, service receipts.' },
                             { title: 'Recalls',               phase: 'Phase 7', blurb: 'Background NHTSA lookup by VIN; acknowledge / resolve flow.' },
                             { title: 'Mileage trends',        phase: 'Phase 8', blurb: 'Chart over time, miles-per-month, predictive ETAs.' },
                             { title: 'Business mileage',      phase: 'Phase 9', blurb: 'Trip log + IRS-rate reports for CRS deductions.' },
@@ -3505,6 +3562,46 @@
         </div>
     </div>
 
+    <!-- Attach Document Modal (Phase 6) -->
+    <div class="modal-overlay" x-show="showAttachDoc" @click.self="showAttachDoc = false"
+         x-transition style="display:none;">
+        <div class="modal" style="max-width:600px;">
+            <h3>Attach document to vehicle</h3>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.75rem;">
+                Pick an auto-domain document that isn't already linked to a vehicle.
+            </p>
+            <div class="form-group">
+                <input type="text" x-model="attachDocFilter"
+                       placeholder="Filter by title or category..."
+                       style="width:100%;">
+            </div>
+            <div style="max-height:50vh; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius);">
+                <template x-if="attachableDocs().length === 0">
+                    <div style="padding:1rem; font-size:0.85rem; color:var(--text-muted);">
+                        No unlinked auto documents available.
+                    </div>
+                </template>
+                <template x-for="d in attachableDocs()" :key="d.id">
+                    <div style="display:flex; justify-content:space-between; align-items:center;
+                                padding:0.5rem 0.75rem; border-bottom:1px solid var(--border); gap:0.5rem;">
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-size:0.85rem; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                                 x-text="d.title" :title="d.title"></div>
+                            <div style="font-size:0.7rem; color:var(--text-muted);">
+                                <span x-text="d.category || 'uncategorized'"></span>
+                                <span x-show="d.ingested_at" x-text="' · ' + d.ingested_at.slice(0,10)"></span>
+                            </div>
+                        </div>
+                        <button class="btn btn-xs btn-primary" @click="attachDocument(d.id)">Link</button>
+                    </div>
+                </template>
+            </div>
+            <div style="display:flex; justify-content:flex-end; margin-top:0.75rem;">
+                <button class="btn" @click="showAttachDoc = false">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Log Mileage FAB Modal (Phase 5) -->
     <div class="modal-overlay" x-show="showLogMileageModal" @click.self="showLogMileageModal = false"
          x-transition style="display:none;">
@@ -3688,6 +3785,11 @@ function lifeos() {
         showArchivedVehicles: false,
         showLogMileageModal: false,
         logMileageForm: { vehicle_id: '', mileage: null },
+
+        // Phase 6: document attach modal state
+        showAttachDoc: false,
+        attachDocFilter: '',
+        attachDocCandidates: [],
         home: { contractorFilter: '' },
 
         // Pets (Phase 8)
@@ -4273,12 +4375,13 @@ function lifeos() {
 
         async loadVehicle(id) {
             try {
-                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes] = await Promise.all([
+                const [vehicleRes, actionsRes, schedulesRes, servicesRes, costRes, docsRes] = await Promise.all([
                     fetch(`/api/records/${id}`).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
                     fetch(`/api/actions?domain=auto&status=pending&per_page=50`).then((r) => r.json()),
                     fetch(`/api/records?record_type=maintenance_schedule&per_page=100`).then((r) => r.json()),
                     fetch(`/api/records?record_type=service_record&per_page=200`).then((r) => r.json()),
                     fetch(`/api/vehicles/${id}/cost-summary`).then((r) => r.ok ? r.json() : { data: null }),
+                    fetch(`/api/vehicles/${id}/documents`).then((r) => r.ok ? r.json() : { data: {} }),
                 ]);
                 const v = vehicleRes.data;
                 // Only the auto-domain actions tied to this vehicle's schedules
@@ -4319,6 +4422,7 @@ function lifeos() {
                         return (b.data?.date || '').localeCompare(a.data?.date || '');
                     }),
                     _costs: costRes?.data || null,
+                    _documents: docsRes?.data || {},
                 };
                 this.vehicleMileageInput = '';
             } catch (e) {
@@ -5210,6 +5314,68 @@ function lifeos() {
                 this.loadAuto();
             } catch (e) {
                 this.toast(e.message, 'error');
+            }
+        },
+
+        // ── Phase 6: documents panel + attach flow ─────────────────────
+        vehicleDocumentCount() {
+            const docs = this.currentVehicle?._documents || {};
+            return Object.values(docs).reduce((sum, list) => sum + list.length, 0);
+        },
+
+        async openAttachDocument() {
+            this.showAttachDoc = true;
+            this.attachDocFilter = '';
+            this.attachDocCandidates = [];
+            try {
+                // Pull auto-domain docs; client filters out the ones already linked.
+                const res = await fetch('/api/documents?domain=auto&per_page=200').then((r) => r.json());
+                this.attachDocCandidates = (res.data || []).filter(
+                    (d) => !d.linked_record_id
+                );
+            } catch (e) {
+                this.toast('Could not load documents: ' + (e.message || ''), 'error');
+            }
+        },
+
+        attachableDocs() {
+            const f = (this.attachDocFilter || '').trim().toLowerCase();
+            const pool = this.attachDocCandidates;
+            if (!f) return pool;
+            return pool.filter((d) =>
+                (d.title || '').toLowerCase().includes(f)
+                || (d.category || '').toLowerCase().includes(f)
+            );
+        },
+
+        async attachDocument(docId) {
+            if (!this.currentVehicle?.id) return;
+            try {
+                await this.api(`/api/documents/${docId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ linked_record_id: this.currentVehicle.id }),
+                });
+                this.toast('Document linked');
+                this.showAttachDoc = false;
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Link failed: ' + (e.message || ''), 'error');
+            }
+        },
+
+        async detachDocument(docId) {
+            if (!confirm('Unlink this document from the vehicle? The document itself stays.')) return;
+            try {
+                await this.api(`/api/documents/${docId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ linked_record_id: null }),
+                });
+                this.toast('Document unlinked');
+                await this.loadVehicle(this.currentVehicle.id);
+            } catch (e) {
+                this.toast('Unlink failed: ' + (e.message || ''), 'error');
             }
         },
 

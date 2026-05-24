@@ -344,7 +344,8 @@ async def list_documents(
             SELECT d.id, d.title, d.domain, d.category, d.file_type, d.mime_type,
                    d.file_size_bytes, d.text_length, d.ocr_applied, d.embedding_status,
                    d.ai_status, d.ai_confidence, d.tags, d.ingested_at,
-                   d.original_filename, d.subject_id, s.name as subject_name
+                   d.original_filename, d.subject_id, s.name as subject_name,
+                   d.linked_record_id
             FROM documents d
             LEFT JOIN subjects s ON s.id = d.subject_id
             WHERE {where}
@@ -371,6 +372,7 @@ async def list_documents(
                 "original_filename": r["original_filename"],
                 "subject_id": str(r["subject_id"]) if r["subject_id"] else None,
                 "subject_name": r["subject_name"],
+                "linked_record_id": str(r["linked_record_id"]) if r["linked_record_id"] else None,
                 "ingested_at": r["ingested_at"].isoformat() if r["ingested_at"] else None,
             }
             for r in rows
@@ -683,6 +685,27 @@ async def update_document(document_id: str, body: DocumentUpdate, request: Reque
 
         if new_subject_ids is not None:
             await _set_document_subjects(conn, did, new_subject_ids)
+
+        # Phase 6: linked_record_id is honored only when the payload
+        # explicitly included it (so unrelated PATCH requests don't clear it).
+        if "linked_record_id" in body.model_fields_set:
+            target: uuid.UUID | None = None
+            if body.linked_record_id:
+                try:
+                    target = uuid.UUID(body.linked_record_id)
+                except ValueError:
+                    raise HTTPException(400, "Invalid linked_record_id")
+                # Confirm it points at a real, non-deleted structured_record.
+                exists = await conn.fetchval(
+                    "SELECT 1 FROM structured_records WHERE id = $1 AND deleted_at IS NULL",
+                    target,
+                )
+                if not exists:
+                    raise HTTPException(400, "linked_record_id not found")
+            await conn.execute(
+                "UPDATE documents SET linked_record_id = $2 WHERE id = $1",
+                did, target,
+            )
 
     # When notes change, re-embed them so they're semantically searchable.
     # Keyword search picks them up automatically via the documents tsvector.

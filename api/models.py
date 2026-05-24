@@ -34,6 +34,11 @@ class DocumentUpdate(BaseModel):
     summary: Optional[str] = None
     notes: Optional[str] = None
     clear_suggestion: Optional[bool] = None
+    # Phase 6: link this document to a structured_record (typically a
+    # vehicle). Pass None / empty string to clear; pass a UUID to set.
+    linked_record_id: Optional[str] = None
+    # Sentinel: only honor linked_record_id from the payload if explicitly
+    # provided. Pydantic v2 model_fields_set handles this for us.
 
 
 class ActionItemCreate(BaseModel):

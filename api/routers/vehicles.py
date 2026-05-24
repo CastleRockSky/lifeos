@@ -311,10 +311,15 @@ async def _count_dependents(conn, vehicle_id: str) -> dict:
                    AND data->>'vehicle_record_id' = $1)""",
         vehicle_id,
     )
+    document_count = await conn.fetchval(
+        "SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL AND linked_record_id = $1",
+        uuid.UUID(vehicle_id),
+    )
     return {
         "maintenance_schedules": schedule_count or 0,
         "service_records": service_count or 0,
         "action_items": action_count or 0,
+        "documents": document_count or 0,
     }
 
 
@@ -420,6 +425,12 @@ async def merge_vehicles(body: VehicleMerge, request: Request):
                      AND data->>'vehicle_record_id' = $1""",
                 str(src_id), str(tgt_id),
             )
+            # Phase 6: documents linked to the source follow the merge.
+            docs_moved = await conn.execute(
+                """UPDATE documents SET linked_record_id = $2
+                   WHERE linked_record_id = $1 AND deleted_at IS NULL""",
+                src_id, tgt_id,
+            )
 
             # Write target's resolved data.
             await conn.execute(
@@ -449,6 +460,7 @@ async def merge_vehicles(body: VehicleMerge, request: Request):
             "target_vehicle_id": str(tgt_id),
             "schedules_moved": _parse_update_count(sched_moved),
             "services_moved": _parse_update_count(svc_moved),
+            "documents_moved": _parse_update_count(docs_moved),
         }
     }
 
@@ -604,6 +616,54 @@ async def cost_summary(vehicle_id: str):
     return {"data": _compute_cost_summary(
         services, current_mileage, mileage_history, date.today(),
     )}
+
+
+# ── Documents panel (Auto-redesign Phase 6) ─────────────────────────────
+
+@router.get("/{vehicle_id}/documents")
+async def vehicle_documents(vehicle_id: str):
+    """Documents linked to this vehicle, grouped by category, newest first
+    within each group. The UI uses this to render the per-vehicle Documents
+    section without having to fetch the whole global Documents list."""
+    try:
+        vid = uuid.UUID(vehicle_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid vehicle id")
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await _fetch_vehicle(conn, vid)
+        rows = await conn.fetch(
+            """SELECT id, title, category, file_type, mime_type,
+                      document_date, expiration_date, expiration_acknowledged_at,
+                      ai_status, review_status, created_at, ingested_at
+               FROM documents
+               WHERE linked_record_id = $1 AND deleted_at IS NULL
+               ORDER BY COALESCE(document_date, created_at::date) DESC,
+                        created_at DESC""",
+            vid,
+        )
+
+    grouped: dict[str, list[dict]] = {}
+    for r in rows:
+        cat = r["category"] or "uncategorized"
+        grouped.setdefault(cat, []).append({
+            "id": str(r["id"]),
+            "title": r["title"],
+            "category": cat,
+            "file_type": r["file_type"],
+            "mime_type": r["mime_type"],
+            "document_date": r["document_date"].isoformat() if r["document_date"] else None,
+            "expiration_date": r["expiration_date"].isoformat() if r["expiration_date"] else None,
+            "expiration_acknowledged": r["expiration_acknowledged_at"] is not None,
+            "ai_status": r["ai_status"],
+            "review_status": r["review_status"],
+            "thumbnail_url": f"/api/documents/{r['id']}/thumbnail",
+            "file_url": f"/api/documents/{r['id']}/file",
+            "created_at": r["created_at"].isoformat(),
+        })
+
+    return {"data": grouped, "meta": {"total": len(rows)}}
 
 
 # ── Fleet summary (Auto-redesign Phase 5) ───────────────────────────────

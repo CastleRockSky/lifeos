@@ -53,11 +53,13 @@ CREATE TABLE documents (
     tags TEXT[] DEFAULT '{}',
     uploaded_by VARCHAR(100),
     email_message_id UUID,                  -- FK added below (forward declaration)
+    linked_record_id UUID REFERENCES structured_records(id) ON DELETE SET NULL,
     ingested_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
 );
+CREATE INDEX idx_documents_linked_record ON documents(linked_record_id) WHERE linked_record_id IS NOT NULL;
 
 -- ── Document Subjects (many-to-many) ────────────────────────────────────
 -- documents.subject_id is the denormalised primary subject; this table is

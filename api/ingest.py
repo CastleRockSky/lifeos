@@ -450,6 +450,38 @@ async def run_ai_analysis(
             except Exception as learn_err:
                 logger.warning(f"Sender mapping update failed for {doc_id}: {learn_err}")
 
+        # ── Vehicle linking (auto domain only, Phase 6) ───────────────
+        # If we just identified an auto doc with VIN or year+make+model in
+        # the extraction, attach it to the matching vehicle so it shows up
+        # on the per-vehicle Documents panel. Never raises.
+        if apply_domain == "auto" and result.extracted_data:
+            try:
+                from auto_linking import match_document_to_vehicle
+                pool = get_pool()
+                async with pool.acquire() as conn:
+                    veh_rows = await conn.fetch(
+                        """SELECT id, data FROM structured_records
+                           WHERE record_type = 'vehicle' AND deleted_at IS NULL
+                             AND (data->>'status' IS NULL
+                                  OR data->>'status' NOT IN
+                                     ('merged','archived','sold','totaled'))"""
+                    )
+                    candidates = [
+                        {"id": str(r["id"]),
+                         "data": r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])}
+                        for r in veh_rows
+                    ]
+                    match_id = match_document_to_vehicle(result.extracted_data, candidates)
+                    if match_id:
+                        await conn.execute(
+                            """UPDATE documents SET linked_record_id = $1
+                               WHERE id = $2 AND linked_record_id IS NULL""",
+                            uuid.UUID(match_id), uuid.UUID(doc_id),
+                        )
+                        logger.info(f"Auto-linked doc {doc_id} to vehicle {match_id}")
+            except Exception as link_err:
+                logger.warning(f"Vehicle linking failed for {doc_id}: {link_err}")
+
         # ── Duplicate detection ───────────────────────────────────────
         # Runs here (not at ingest time) so document_date is known and the
         # date-aware filter can apply. Never raises.
