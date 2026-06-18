@@ -18,7 +18,8 @@ import pytest
 
 from auto_linking import (
     _normalise_vin, _doc_keys, _vehicle_keys, _split_combined_vehicle,
-    is_phantom_vehicle, is_vin_tail_mileage, match_document_to_vehicle,
+    _vins_match, is_phantom_vehicle, is_vin_tail_mileage,
+    match_document_to_vehicle,
 )
 
 
@@ -44,6 +45,33 @@ def test_normalise_vin_rejects_wrong_length():
 @pytest.mark.parametrize("value", [None, "", 12345, []])
 def test_normalise_vin_rejects_non_strings(value):
     assert _normalise_vin(value) is None
+
+
+# ─── _vins_match (pure) ─────────────────────────────────────────────────
+
+
+def test_vins_match_exact():
+    assert _vins_match("5TDJRKEC1NS129572", "5TDJRKEC1NS129572") is True
+
+
+def test_vins_match_one_char_ocr_flip():
+    """The real Dakota case: position-11 S got OCR'd as 8 on a scan, which
+    exact matching can't dedupe. A single substitution must still match."""
+    assert _vins_match("1D7HG38X83S172745", "1D7HG38X838172745") is True
+
+
+def test_vins_match_rejects_two_char_difference():
+    """Two-character divergence is beyond a single OCR glyph — treat as a
+    genuinely different VIN, don't merge them."""
+    assert _vins_match("1D7HG38X83S172745", "1D7HG38X888172745") is False
+
+
+def test_vins_match_rejects_length_mismatch_and_none():
+    # Different lengths can't be a substitution; None means no VIN to compare.
+    assert _vins_match("ABC", "ABCD") is False
+    assert _vins_match(None, "5TDJRKEC1NS129572") is False
+    assert _vins_match("5TDJRKEC1NS129572", None) is False
+    assert _vins_match(None, None) is False
 
 
 # ─── _doc_keys / _vehicle_keys (pure) ───────────────────────────────────
@@ -116,6 +144,23 @@ def test_match_returns_none_on_ambiguous_year_make_model():
             "data": {"vin": None, "year": 2003, "make": "Dodge", "model": "Dakota"}}
     extracted = {"vehicle_year": 2003, "vehicle_make": "Dodge", "vehicle_model": "Dakota"}
     assert match_document_to_vehicle(extracted, [_DAKOTA, dak2]) is None
+
+
+def test_match_fuzzy_vin_attaches_single_candidate():
+    """An OCR-flipped VIN on a scan (no exact hit) should still attach the
+    doc to the one vehicle within a single character — otherwise the doc
+    orphans and a duplicate vehicle tends to get created from it."""
+    extracted = {"vin": "1B7HG13Z32S700000"}  # one char off _DAKOTA's VIN
+    assert match_document_to_vehicle(extracted, [_SIENNA, _DAKOTA]) == "veh-dakota"
+
+
+def test_match_fuzzy_vin_refuses_to_guess_when_ambiguous():
+    """If two vehicles are each within one character of the doc's VIN, don't
+    guess — mirror the y/m/m ambiguity rule and return None."""
+    near1 = {"id": "veh-a", "data": {"vin": "1B7HG13Z32S700001"}}
+    near2 = {"id": "veh-b", "data": {"vin": "1B7HG13Z32S700009"}}
+    extracted = {"vin": "1B7HG13Z32S700000"}  # one char from each
+    assert match_document_to_vehicle(extracted, [near1, near2]) is None
 
 
 def test_match_skips_year_make_model_when_any_field_missing():
@@ -219,15 +264,61 @@ def test_phantom_vehicle_allows_legitimate_new_record():
     assert is_phantom_vehicle(proposed, existing) is None
 
 
-def test_phantom_vehicle_allows_when_proposed_has_vin():
-    """A VIN-bearing proposal is authoritative — even if y/m/m matches
-    an existing one (rare case: two of the same model), trust the VIN
-    and let it through. The merge UI exists for cleanup."""
-    proposed = {"year": 2022, "make": "Toyota", "model": "Sienna",
-                "vin": "5TDJRKEC1NS999999"}
-    existing = [{"id": "veh-1",
-                 "data": {"year": 2022, "make": "Toyota", "model": "Sienna"}}]
-    assert is_phantom_vehicle(proposed, existing) is None
+def test_phantom_vehicle_flags_same_make_when_vin_does_not_match():
+    """Stronger guard (2026-06-18): on the AI path, an extracted vehicle whose
+    make matches an existing active vehicle but whose VIN matches nothing is
+    treated as a probable OCR-garbled duplicate and skipped — this fleet holds
+    one vehicle per make. (Was previously allowed through; that let 2-char-OCR
+    VIN dups slip past _vins_match and spawn phantom Sequoias.) Genuine second
+    cars of an existing make are added via manual POST /api/vehicles, which
+    bypasses this guard."""
+    proposed = {"year": 2003, "make": "Toyota", "model": "Sequoia",
+                "vin": "5TDBT44A35S165893"}  # 53→35 transposition, Hamming 2
+    existing = [{"id": "veh-seq",
+                 "data": {"year": 2003, "make": "Toyota", "model": "Sequoia",
+                          "vin": "5TDBT44A53S165893"}}]
+    reason = is_phantom_vehicle(proposed, existing)
+    assert reason is not None
+    assert "veh-seq" in reason
+
+
+def test_phantom_vehicle_flags_garbled_year_no_vin_same_make():
+    """The "2273"→2023 OCR case: garbled year defeats year+make+model matching,
+    but the make still matches the real vehicle, so it's caught."""
+    proposed = {"year": 2023, "make": "Toyota", "model": "Sequoia"}
+    existing = [{"id": "veh-seq",
+                 "data": {"year": 2003, "make": "Toyota", "model": "Sequoia",
+                          "vin": "5TDBT44A53S165893"}}]
+    assert is_phantom_vehicle(proposed, existing) is not None
+
+
+def test_phantom_vehicle_flags_duplicate_on_exact_vin():
+    """The core dedup fix: a re-extracted vehicle whose VIN already exists
+    on an active record is a duplicate, not a new vehicle. Pre-fix this
+    fell through and inserted a fresh row (the 6-Dakota fan-out)."""
+    proposed = {"year": 2003, "make": "Dodge", "model": "Dakota",
+                "vin": "1D7HG38X83S172745"}
+    existing = [{"id": "veh-dakota",
+                 "data": {"year": 2003, "make": "Dodge", "model": "Dakota",
+                          "vin": "1D7HG38X83S172745"}}]
+    reason = is_phantom_vehicle(proposed, existing)
+    assert reason is not None
+    assert "veh-dakota" in reason
+    assert "vin" in reason.lower()
+
+
+def test_phantom_vehicle_flags_duplicate_on_ocr_flipped_vin():
+    """The S→8 OCR'd Dakota VIN must still be recognised as the same
+    vehicle — exact matching alone wouldn't catch it and a duplicate would
+    be created."""
+    proposed = {"year": 2003, "make": "Dodge", "model": "Dakota",
+                "vin": "1D7HG38X838172745"}  # position-11 S misread as 8
+    existing = [{"id": "veh-dakota",
+                 "data": {"year": 2003, "make": "Dodge", "model": "Dakota",
+                          "vin": "1D7HG38X83S172745"}}]
+    reason = is_phantom_vehicle(proposed, existing)
+    assert reason is not None
+    assert "veh-dakota" in reason
 
 
 def test_phantom_vehicle_allows_new_y_m_m_with_no_vin():

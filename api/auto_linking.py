@@ -22,6 +22,28 @@ def _normalise_vin(raw) -> Optional[str]:
     return cleaned
 
 
+def _vins_match(a: Optional[str], b: Optional[str], max_dist: int = 1) -> bool:
+    """True when two *already-normalised* VINs are equal, or differ by at
+    most ``max_dist`` substituted characters.
+
+    VINs are fixed-length 17, so OCR damage on a scanned title/registration
+    shows up as single-glyph substitutions (S↔8, I↔1, O↔0, B↔8) rather than
+    insertions/deletions — an inserted/dropped char would fail
+    ``_normalise_vin``'s length check upstream and surface as ``None``. A
+    one-character tolerance therefore catches the real failure mode without
+    matching genuinely different VINs (two 17-char VINs that differ in only
+    one position are not something a single owner's fleet produces by
+    chance). Exact match is the common case and short-circuits first.
+    """
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if len(a) != len(b):
+        return False
+    return sum(1 for x, y in zip(a, b) if x != y) <= max_dist
+
+
 def _norm_str(raw) -> Optional[str]:
     if raw is None:
         return None
@@ -127,15 +149,36 @@ def is_phantom_vehicle(
         return "model field missing — likely hallucinated from a form-field misread"
 
     p_keys = _vehicle_keys(proposed)
-    # If the proposed blob lacks a VIN AND triple-matches an existing active
-    # vehicle, treat it as a duplicate.
-    if not p_keys["vin"]:
+
+    # 1. Positive VIN match (exact, or within one OCR-flipped character) →
+    # a definite duplicate of an existing vehicle. This is the gap behind
+    # silent vehicle multiplication: each ingested doc re-extracts the same
+    # VIN and, pre-fix, inserted a fresh row. (Real case: a Dakota fanned out
+    # to 6 active records, one with an S→8 OCR'd VIN that exact matching
+    # couldn't dedupe.)
+    if p_keys["vin"]:
         for v in existing_vehicles:
-            e_keys = _vehicle_keys(v.get("data") or {})
-            if (e_keys["year"] and e_keys["year"] == p_keys["year"]
-                    and e_keys["make"] and e_keys["make"] == p_keys["make"]
-                    and e_keys["model"] and e_keys["model"] == p_keys["model"]):
-                return f"matches existing vehicle {v['id']} on year+make+model and has no VIN"
+            e_vin = _vehicle_keys(v.get("data") or {})["vin"]
+            if _vins_match(p_keys["vin"], e_vin):
+                return f"matches existing vehicle {v['id']} on VIN"
+
+    # 2. No positive VIN match. Guard against the duplicates the VIN check
+    # cannot see — VINs garbled by 2+ OCR characters (past _vins_match's
+    # tolerance) and garbled years (e.g. OCR read "2003" as "2273" → 2023).
+    # On the AI structured_records path, an extracted vehicle whose *make*
+    # matches an existing active vehicle is almost certainly a re-read of that
+    # vehicle, not a genuinely new one — this fleet holds at most one vehicle
+    # per make. Skip the auto-insert and let the document surface for manual
+    # review/attach instead of spawning a near-duplicate. Genuine new vehicles
+    # (incl. a second car of an existing make) are added via manual
+    # POST /api/vehicles, which never reaches this guard.
+    p_make = p_keys["make"]
+    if p_make:
+        for v in existing_vehicles:
+            if _vehicle_keys(v.get("data") or {})["make"] == p_make:
+                return (f"make '{p_make}' matches existing vehicle {v['id']} "
+                        "with no exact VIN match — likely an OCR-garbled "
+                        "duplicate; skipping auto-create")
 
     return None
 
@@ -187,6 +230,14 @@ def match_document_to_vehicle(
             k = _vehicle_keys(v.get("data") or {})
             if k["vin"] and k["vin"] == d["vin"]:
                 return v["id"]
+        # No exact VIN hit. Allow a single OCR-flipped-character match so a
+        # garbled VIN on a scan still attaches the doc to the right vehicle
+        # instead of orphaning it. Only when exactly one candidate is within
+        # distance 1 — mirror the triple-match "don't guess on ambiguity" rule.
+        fuzzy = [v["id"] for v in vehicles
+                 if _vins_match(d["vin"], _vehicle_keys(v.get("data") or {})["vin"])]
+        if len(fuzzy) == 1:
+            return fuzzy[0]
 
     # year+make+model triple. Require all three present on both sides.
     if d["year"] and d["make"] and d["model"]:
