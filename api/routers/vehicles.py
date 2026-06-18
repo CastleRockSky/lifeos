@@ -8,13 +8,18 @@ the vehicle-specific operations:
   - Vehicle CRUD wrappers, archive, merge (Auto-redesign Phase 2)
 """
 
+import io
 import json
 import logging
+import mimetypes
+import os
 import uuid
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from database import get_pool
@@ -784,6 +789,75 @@ async def vehicle_documents(vehicle_id: str):
         })
 
     return {"data": grouped, "meta": {"total": len(rows)}}
+
+
+def _zip_component(name: str) -> str:
+    """Sanitise a single path component (folder or filename) for a zip entry:
+    no path separators, no control chars, never empty."""
+    name = (name or "").strip().replace("\\", "_").replace("/", "_")
+    name = "".join(ch for ch in name if ch.isprintable()).strip(". ")
+    return name or "file"
+
+
+@router.get("/{vehicle_id}/documents.zip")
+async def export_vehicle_documents(vehicle_id: str, request: Request):
+    """Bundle every document linked to this vehicle into a single zip,
+    organised into per-category folders. Files missing on disk are skipped
+    rather than failing the whole export; an empty result is a 404."""
+    try:
+        vid = uuid.UUID(vehicle_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid vehicle id")
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        vehicle = await _fetch_vehicle(conn, vid)
+        rows = await conn.fetch(
+            """SELECT id, file_path, original_filename, title, category,
+                      mime_type, document_date, created_at
+               FROM documents
+               WHERE linked_record_id = $1 AND deleted_at IS NULL
+               ORDER BY COALESCE(document_date, created_at::date), created_at""",
+            vid,
+        )
+
+    stem = _zip_component(_vehicle_display_name(_data(vehicle))).replace(" ", "-")
+
+    buf = io.BytesIO()
+    used: set[str] = set()
+    written = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for r in rows:
+            path = r["file_path"]
+            if not path or not os.path.exists(path):
+                continue
+            folder = _zip_component((r["category"] or "uncategorized").replace("_", " ").title())
+            base = _zip_component(r["original_filename"] or r["title"] or f"document-{str(r['id'])[:8]}")
+            if "." not in base:
+                ext = mimetypes.guess_extension(r["mime_type"] or "") or ""
+                base = f"{base}{ext}"
+            arc = f"{folder}/{base}"
+            if arc in used:  # collision — disambiguate with the short doc id
+                head, dot, tail = base.rpartition(".")
+                short = str(r["id"])[:8]
+                base = f"{head}-{short}.{tail}" if dot else f"{base}-{short}"
+                arc = f"{folder}/{base}"
+            used.add(arc)
+            zf.write(path, arc)
+            written += 1
+
+    if written == 0:
+        raise HTTPException(404, "No downloadable documents for this vehicle")
+
+    buf.seek(0)
+    await audit_log("export_zip", get_user_email(request), "structured_records",
+                    str(vid), {"document_count": written})
+    fname = f"{stem}-documents.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 # ── Fleet summary (Auto-redesign Phase 5) ───────────────────────────────

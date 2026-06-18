@@ -2260,7 +2260,10 @@
                                 <h2>Documents</h2>
                                 <span style="font-size:0.85rem; color:var(--text-muted);"
                                       x-text="vehicleDocumentCount() + ' on file'"></span>
-                                <button class="btn btn-sm" style="margin-left:auto;"
+                                <a class="btn btn-sm" style="margin-left:auto;"
+                                   x-show="vehicleDocumentCount() > 0"
+                                   :href="'/api/vehicles/' + currentVehicle.id + '/documents.zip'">⬇ Download all (.zip)</a>
+                                <button class="btn btn-sm" :style="vehicleDocumentCount() > 0 ? '' : 'margin-left:auto;'"
                                         @click="openAttachDocument()">+ Attach</button>
                             </div>
                             <template x-if="vehicleDocumentCount() === 0">
