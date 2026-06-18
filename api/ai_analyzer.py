@@ -262,9 +262,18 @@ async def analyze_document(
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1500,
+            model="claude-sonnet-4-6",
+            # 1500 was enough for Sonnet 4, but Sonnet 4.6 emits longer JSON
+            # (richer summaries + action_items) and was truncating mid-string on
+            # multi-page docs, which then failed json.loads and left the doc
+            # unclassified. 4000 gives the structured response room to complete.
+            max_tokens=4000,
             temperature=0.0,
+            # Classification/extraction is not a reasoning task — no thinking,
+            # and "medium" effort (vs 4.6's "high" default) trims token cost
+            # and latency while staying above the bare-minimum "low".
+            thinking={"type": "disabled"},
+            output_config={"effort": "medium"},
             system=ANALYSIS_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )
